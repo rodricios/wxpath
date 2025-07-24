@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "packaging>=24.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wxpath"
+version = "0.1.0"
+description = "An XPath-based web crawler and extractor"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    { name = "Rodrigo Palacios", email = "rodrigopala91@gmail.com" }
+]
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = [
+    "requests>=2.0",
+    "lxml>=4.0"
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["wxpath"]

@@ -1,0 +1,41 @@
+# ignore virtualenv's own files
+*.pyc
+*.pyo
+*.py.class
+
+# ignore virtualenv wrapper scripts
+*.exe
+*.cmd
+
+# ignore virtualenv build directory
+build
+
+# ignore egg cache
+*.egg-info
+*.egg
+
+# ignore virtualenv's site-packages
+site-packages
+
+# ignore virtualenv's dist-packages
+dist-packages   
+
+# ignore virtualenv's pycache
+__pycache__
+
+# ignore virtualenv's wheelhouse
+wheelhouse
+
+# ignore virtualenv's site
+site
+
+# ignore virtualenv's local
+.pytest_cache
+
+share
+
+venv
+
+pyvenv.cfg
+
+*.zip
