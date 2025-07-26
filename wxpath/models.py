@@ -14,13 +14,14 @@ class WxElement(html.HtmlElement):
 
 
 class WxStr(str):
-    def __new__(cls, value, base_url=None):
+    def __new__(cls, value, base_url=None, depth=-1):
         obj = super().__new__(cls, value)
         obj.base_url = base_url
+        obj.depth = depth
         return obj
 
     def __repr__(self):
-        return f"ExtractedStr({super().__repr__()}, base_url={self.base_url!r})"
+        return f"ExtractedStr({super().__repr__()}, base_url={self.base_url!r}, depth={self.depth})"
 
 
 class Task:

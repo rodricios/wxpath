@@ -8,8 +8,19 @@
 ```python
 import wxpath
 
+## EXAMPLES
+# Starting from Expression language's wiki, infinitely crawl all child links (and child's child's links recursively).
+path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///main//a/url(@href)"
+
+# Modify max_depth to limit the BFS tree (crawl depth).
+items = list(wxpath.core.wxpath(path_expr, max_depth=1))
+
+# --- #
+# Starting from Expression language's wiki, crawl all child links, and extract all each child's links (hrefs).
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//url(@href[starts-with(., '/wiki/')])//a/@href"
 
+# Under the hood of wxpath.core.wxpath, we generate `segments` list, revealing the operations executed to
+# accomplish the crawl.
 segments = wxpath.core.parse_wxpath_expr(path_expr); segments
 
 results = []
@@ -37,9 +48,19 @@ MIT
 ## TODO
 
 1. Support `///url('https://en.wikipedia.org/wiki/United_States') - crawls page and all forward links infinitely
-2. Support more infinite crawl filterings:
-    * `url('https://en.wikipedia.org/wiki/United_States')///main//a/url(@href[child])`
+2. ~~Support more infinite crawl filterings:~~
+    * ~~`url('https://en.wikipedia.org/wiki/United_States')///main//a/url(@href)`~~
 3. Flesh out tests on filtered infinite crawls
+4. Extend DSL to support inline, multiple field extractions.
+    * `url('example.com')//{field_name:<xpath>}`
+    * `url('example.com')//xpath/filter/{field_name:<xpath>}`
+    * The return object would be a list of dicts with field_name:value (value extracted from the xpath)
+    ```
+    url('https://en.wikipedia.org/wiki/United_States')/{
+        title://span[contains(@class, "mw-page-title-main")]/text(),
+        shortdescription://div[contains(@class, "shortdescription")]/text()
+    }
+    ```
 
 ## Roadmap (rough and subject to drastic change)
 

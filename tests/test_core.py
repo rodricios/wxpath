@@ -9,6 +9,16 @@ from wxpath.core import evaluate_wxpath_bfs_iter
 from lxml import html
 
 
+def _generate_fake_fetch_html(pages):
+    def _fake_fetch_html(url):
+        try:
+            return pages[url]
+        except KeyError:
+            raise AssertionError(f"Unexpected URL fetched: {url}")
+
+    return _fake_fetch_html
+
+
 def test_parse_wxpath_expr_single_url():
     expr = "url('http://example.com')"
     assert parse_wxpath_expr(expr) == [
@@ -82,6 +92,26 @@ def test_evaluate_wxpath_bfs_iter_unknown_op():
     assert "Unknown operation: foo" in str(excinfo.value)
 
 
+def test_evaluate_wxpath_bfs_iter_crawl_one_level(monkeypatch):
+    # 1: define page HTML
+    pages = {
+        'http://test/': b"<html><body><p>Page A</p></body></html>",
+    }
+
+    # 2: stub out fetch_html
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+
+    # 3: build & run
+    expr = "url('http://test/')"
+    segments = parse_wxpath_expr(expr)
+    results = list(evaluate_wxpath_bfs_iter(None, segments, max_depth=1))
+
+    # 4: verify BFS order and base_url propagation
+    assert len(results) == 1
+    assert results[0].get('depth') == '0'
+    assert results[0].base_url == 'http://test/'
+
+
 def test_evaluate_wxpath_bfs_iter_crawl_two_levels(monkeypatch):
     # 1: define page HTML
     pages = {
@@ -96,12 +126,7 @@ def test_evaluate_wxpath_bfs_iter_crawl_two_levels(monkeypatch):
     }
 
     # 2: stub out fetch_html
-    def fake_fetch_html(url):
-        try:
-            return pages[url]
-        except KeyError:
-            raise AssertionError(f"Unexpected URL fetched: {url}")
-    monkeypatch.setattr('wxpath.core.fetch_html', fake_fetch_html)
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
 
     # 3: build & run
     expr = "url('http://test/')//url(@href)"
@@ -110,11 +135,42 @@ def test_evaluate_wxpath_bfs_iter_crawl_two_levels(monkeypatch):
 
     # 4: verify BFS order and base_url propagation
     assert len(results) == 2
+    assert results[0].get('depth') == '1'
+    assert results[1].get('depth') == '1'
     assert [e.base_url for e in results] == [
         'http://test/a.html',
         'http://test/b.html',
     ]
-    
+
+
+def test_evaluate_wxpath_bfs_iter__crawl_xpath_crawl(monkeypatch):
+    # 1: define page HTML
+    pages = {
+        'http://test/': b"""
+            <html><body>
+              <main><a href="a.html">A</a></main>
+              <a href="b.html">B</a>
+            </body></html>
+        """,
+        'http://test/a.html': b"<html><body><p>Page A</p></body></html>",
+        'http://test/b.html': b"<html><body><p>Page B</p></body></html>",
+    }
+
+    # 2: stub out fetch_html
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+
+    # 3: build & run
+    expr = "url('http://test/')//main//a/url(@href)"
+    segments = parse_wxpath_expr(expr)
+    results = list(evaluate_wxpath_bfs_iter(None, segments, max_depth=1))
+
+    # 4: verify BFS order and base_url propagation
+    assert len(results) == 1
+    assert results[0].get('depth') == '1'
+    assert [e.base_url for e in results] == [
+        'http://test/a.html',
+    ]
+
 
 def test_evaluate_wxpath_bfs_iter_crawl_three_levels(monkeypatch):
     pages = {
@@ -123,18 +179,14 @@ def test_evaluate_wxpath_bfs_iter_crawl_three_levels(monkeypatch):
       'http://test/lvl2.html': b"<html><body><p>Reached L2</p></body></html>",
     }
 
-    def fake_fetch_html(url):
-        try:
-            return pages[url]
-        except KeyError:
-            raise AssertionError(f"Unexpected URL fetched: {url}")
-    monkeypatch.setattr('wxpath.core.fetch_html', fake_fetch_html)
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')//url(@href)//url(@href)"
     segments = parse_wxpath_expr(expr)
     results = list(evaluate_wxpath_bfs_iter(None, segments, max_depth=2))
 
     assert len(results) == 1
+    assert results[0].get('depth') == '2'
     assert results[0].base_url == 'http://test/lvl2.html'
     
 
@@ -150,12 +202,7 @@ def test_evaluate_wxpath_bfs_iter_crawl_two_levels_and_query(monkeypatch):
         'http://test/b.html': b"<html><body><a href='page2.html'>L2</a></body></html>",
     }
     
-    def fake_fetch_html(url):
-        try:
-            return pages[url]
-        except KeyError:
-            raise AssertionError(f"Unexpected URL fetched: {url}")
-    monkeypatch.setattr('wxpath.core.fetch_html', fake_fetch_html)
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')//url(@href)//a/@href"
     segments = parse_wxpath_expr(expr)
@@ -175,12 +222,26 @@ def test_evaluate_wxpath_bfs_iter_crawl_three_levels_and_query(monkeypatch):
       'http://test/lvl3.html': b"<html><body><p>Reached L3</p></body></html>",
     }
 
-    def fake_fetch_html(url):
-        try:
-            return pages[url]
-        except KeyError:
-            raise AssertionError(f"Unexpected URL fetched: {url}")
-    monkeypatch.setattr('wxpath.core.fetch_html', fake_fetch_html)
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+
+    expr = "url('http://test/')//url(@href)//url(@href)//a/@href"
+    segments = parse_wxpath_expr(expr)
+    results = list(evaluate_wxpath_bfs_iter(None, segments, max_depth=2))
+
+    assert len(results) == 1
+    assert results[0] == 'lvl3.html'
+
+
+def test_evaluate_wxpath_bfs_iter_crawl_four_levels_and_query_and_max_depth_2(monkeypatch):
+    pages = {
+      'http://test/': b"<html><body><a href='lvl1.html'>L1</a></body></html>",
+      'http://test/lvl1.html': b"<html><body><a href='lvl2.html'>L2</a></body></html>",
+      'http://test/lvl2.html': b"<html><body><a href='lvl3.html'>L3</a></body></html>",
+      'http://test/lvl3.html': b"<html><body><a href='lvl4.html'>L4</a></body></html>",
+      'http://test/lvl4.html': b"<html><body><a href='lvl5.html'>L4</a></body></html>",
+    }
+
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')//url(@href)//url(@href)//a/@href"
     segments = parse_wxpath_expr(expr)
@@ -205,12 +266,7 @@ def test_evaluate_wxpath_bfs_iter_filtered_crawl(monkeypatch):
       'http://test/lvl3.html': b"<html><body><p>Reached L3</p></body></html>",
     }
     
-    def fake_fetch_html(url):
-        try:
-            return pages[url]
-        except KeyError:
-            raise AssertionError(f"Unexpected URL fetched: {url}")
-    monkeypatch.setattr('wxpath.core.fetch_html', fake_fetch_html)
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')//url(@href[starts-with(., 'lvl1a')])//a/@href"
     segments = parse_wxpath_expr(expr)
@@ -235,12 +291,7 @@ def test_evaluate_wxpath_bfs_iter_infinite_crawl_max_depth_uncapped(monkeypatch)
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
     
-    def fake_fetch_html(url):
-        try:
-            return pages[url]
-        except KeyError:
-            raise AssertionError(f"Unexpected URL fetched: {url}")
-    monkeypatch.setattr('wxpath.core.fetch_html', fake_fetch_html)
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')///url(@href)"
     segments = parse_wxpath_expr(expr)
@@ -269,12 +320,7 @@ def test_evaluate_wxpath_bfs_iter_infinite_crawl_max_depth_1(monkeypatch):
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
     
-    def fake_fetch_html(url):
-        try:
-            return pages[url]
-        except KeyError:
-            raise AssertionError(f"Unexpected URL fetched: {url}")
-    monkeypatch.setattr('wxpath.core.fetch_html', fake_fetch_html)
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')///url(@href)"
     segments = parse_wxpath_expr(expr)
@@ -285,6 +331,7 @@ def test_evaluate_wxpath_bfs_iter_infinite_crawl_max_depth_1(monkeypatch):
         'http://test/a.html',
         'http://test/b.html',
     ]
+
 
 def test_evaluate_wxpath_bfs_iter_infinite_crawl_and_query_max_depth_1(monkeypatch):
     pages = {
@@ -300,12 +347,7 @@ def test_evaluate_wxpath_bfs_iter_infinite_crawl_and_query_max_depth_1(monkeypat
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
     
-    def fake_fetch_html(url):
-        try:
-            return pages[url]
-        except KeyError:
-            raise AssertionError(f"Unexpected URL fetched: {url}")
-    monkeypatch.setattr('wxpath.core.fetch_html', fake_fetch_html)
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')///url(@href)//a/@href"
     segments = parse_wxpath_expr(expr)
@@ -316,6 +358,7 @@ def test_evaluate_wxpath_bfs_iter_infinite_crawl_and_query_max_depth_1(monkeypat
         'a1.html',
         'b1.html',
     ]
+
 
 # TODO: refactor with fixtures
 def test_evaluate_wxpath_bfs_iter_infinite_crawl_and_query_max_depth_2(monkeypatch):
@@ -332,12 +375,7 @@ def test_evaluate_wxpath_bfs_iter_infinite_crawl_and_query_max_depth_2(monkeypat
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
     
-    def fake_fetch_html(url):
-        try:
-            return pages[url]
-        except KeyError:
-            raise AssertionError(f"Unexpected URL fetched: {url}")
-    monkeypatch.setattr('wxpath.core.fetch_html', fake_fetch_html)
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')///url(@href)//a/@href"
     segments = parse_wxpath_expr(expr)
@@ -352,29 +390,89 @@ def test_evaluate_wxpath_bfs_iter_infinite_crawl_and_query_max_depth_2(monkeypat
     ]
 
 
-# Test evaluate_wxpath_bfs_iter() with filtered (argument) infinite crawl
-def test_evaluate_wxpath_bfs_iter_filtered_infinite_crawl(monkeypatch):
+# Test evaluate_wxpath_bfs_iter() with filtered (argument) infinite crawl - type 1
+def test_evaluate_wxpath_bfs_iter_infinite_crawl_with_inf_filter_before_url_op(monkeypatch):
     pages = {
         'http://test/': b"""
             <html><body>
-              <a href="a.html">A</a>
+              <main><a href="a.html">A</a></main>
               <a href="b.html">B</a>
             </body></html>
         """,
-        'http://test/a.html': b"<html><body><a href='a1.html'>L2</a></body></html>",
-        'http://test/b.html': b"<html><body><a href='b1.html'>L2</a></body></html>",
+        'http://test/a.html': b"<html><body><main><a href='a1.html'>Depth 1</a></main></body></html>",
+        'http://test/b.html': b"<html><body><main><a href='b1.html'>Depth 1</a></main></body></html>",
+        'http://test/a1.html': b"<html><body><a href='a2.html'>Depth 2</a></body></html>",
+        'http://test/b1.html': b"<html><body><a href='b2.html'>Depth 2</a></body></html>",
+    }
+    
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    
+    expr = "url('http://test/')///main/a/url(@href)"
+    segments = parse_wxpath_expr(expr)
+    results = list(evaluate_wxpath_bfs_iter(None, segments, max_depth=2))
+
+    assert len(results) == 2
+    assert [e.base_url for e in results] == [
+        'http://test/a.html',
+        'http://test/a1.html'
+    ]
+    
+# Test evaluate_wxpath_bfs_iter() with filtered (argument) infinite crawl - type 1
+def test_evaluate_wxpath_bfs_iter__crawl_xpath_crawl_max_depth_1(monkeypatch):
+    pages = {
+        'http://test/': b"""
+            <html><body>
+              <main><a href="a.html">A</a></main>
+              <a href="b.html">B</a>
+            </body></html>
+        """,
+        'http://test/a.html': b"<html><body><main><a href='a1.html'>L2</a></main></body></html>",
+        'http://test/b.html': b"<html><body><main><a href='b1.html'>L2</a></main></body></html>",
         'http://test/a1.html': b"<html><body><a href='a2.html'>L3</a></body></html>",
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
     
-    def fake_fetch_html(url):
-        try:
-            return pages[url]
-        except KeyError:
-            raise AssertionError(f"Unexpected URL fetched: {url}")
-    monkeypatch.setattr('wxpath.core.fetch_html', fake_fetch_html)
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    
+    expr = "url('http://test/')///main/a/url(@href)"
+    segments = parse_wxpath_expr(expr)
+    results = list(evaluate_wxpath_bfs_iter(None, segments, max_depth=1))
+
+    assert len(results) == 1
+    assert results[0].get('depth') == '1'
+    assert [e.base_url for e in results] == [
+        'http://test/a.html'
+    ]
 
 
+# Test evaluate_wxpath_bfs_iter() with filtered (argument) infinite crawl - type 2
+def test_evaluate_wxpath_bfs_iter__crawl_inf_crawl_with_filter(monkeypatch): #infinite_crawl_with_inf_filter_as_url_op_arg(monkeypatch):
+    pages = {
+        'http://test/': b"""
+            <html><body>
+              <main><a href="a.html">A</a></main>
+              <a href="b.html">B</a>
+            </body></html>
+        """,
+        'http://test/a.html': b"<html><body><main><a href='a1.html'>L2</a></main></body></html>",
+        'http://test/b.html': b"<html><body><main><a href='b1.html'>L2</a></main></body></html>",
+        'http://test/a1.html': b"<html><body><a href='a2.html'>L3</a></body></html>",
+        'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
+    }
+    
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    
+    expr = "url('http://test/')///url(//main/a/@href)"
+    segments = parse_wxpath_expr(expr)
+    results = list(evaluate_wxpath_bfs_iter(None, segments, max_depth=2))
+
+    assert len(results) == 2
+    assert [e.get('depth') for e in results if e.base_url == 'http://test/a.html'] == ['1']
+    assert [e.get('depth') for e in results if e.base_url == 'http://test/a1.html'] == ['2']
+    assert [e.base_url for e in results] == [
+        'http://test/a.html',
+        'http://test/a1.html'
+    ]
 
 
 # Raises when there are multiple ///url() segments
