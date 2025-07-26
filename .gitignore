@@ -39,3 +39,12 @@ venv
 pyvenv.cfg
 
 *.zip
+
+# ignore .claude folder
+.claude
+
+# ignore .serena folder
+.serena
+
+# ignore environment files (keep .env.example)
+.env

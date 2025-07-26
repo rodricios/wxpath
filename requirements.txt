@@ -1,3 +1,6 @@
 requests>=2.0
 lxml>=4.0
 pytest>=7.0
+neo4j>=5.15.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0

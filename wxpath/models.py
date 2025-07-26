@@ -24,15 +24,31 @@ class WxStr(str):
 
 
 class Task:
-    def __init__(self, elem, segments, depth, backlink=None):
+    def __init__(self, elem, segments, depth, backlink=None, parent_page_url=None, session_id=None, discovered_from_url=None):
         self.elem = elem
         self.segments = segments
         self.depth = depth
         self.backlink = backlink
+        # Graph context fields
+        self.parent_page_url = parent_page_url
+        self.session_id = session_id
+        self.discovered_from_url = discovered_from_url  # URL where this task's URL was discovered
     
     def __repr__(self):
-        return f"Task(elem={self.elem}, segments={self.segments}, depth={self.depth}, backlink={self.backlink})"
+        return f"Task(elem={self.elem}, segments={self.segments}, depth={self.depth}, backlink={self.backlink}, parent_page_url={self.parent_page_url}, session_id={self.session_id})"
     
     def __iter__(self):
         return iter((self.elem, self.segments, self.depth, self.backlink))
+    
+    def with_graph_context(self, parent_page_url=None, session_id=None, discovered_from_url=None):
+        """Create a copy of this task with updated graph context."""
+        return Task(
+            elem=self.elem,
+            segments=self.segments,
+            depth=self.depth,
+            backlink=self.backlink,
+            parent_page_url=parent_page_url or self.parent_page_url,
+            session_id=session_id or self.session_id,
+            discovered_from_url=discovered_from_url or self.discovered_from_url
+        )
     

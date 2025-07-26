@@ -125,7 +125,7 @@ def wxpath(elem, path_expr, items=None, depth=1, debug_indent=0):
     return list(evaluate_wxpath_bfs_iter(elem, segments, items, depth=depth, debug_indent=debug_indent))
 
 
-def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_depth=0, html_handlers=[]):
+def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_depth=0, html_handlers=[], _graph_integration=None):
     """
     BFS version of evaluate_wxpath.
     Processes all nodes at the current depth before moving deeper.
@@ -138,7 +138,10 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
     queue = deque()
     
     # Initialize the queue: start with the initial element (or URL segment)
-    queue.append(Task(elem, segments, 0))
+    # Get session_id from graph integration if available
+    session_id = getattr(_graph_integration, '_current_session_id', None) if _graph_integration else None
+    initial_task = Task(elem, segments, 0, session_id=session_id)
+    queue.append(initial_task)
 
     iterations = 0
     while queue:
@@ -147,7 +150,10 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
         if iterations % 100 == 0:
             print(f"[BFS] Iteration {iterations}: Queue size: {len(queue)}, Current depth: {curr_depth}, Seen URLs: {len(seen_urls)}")
         
-        curr_elem, curr_segments, curr_depth, backlink = queue.popleft()
+        task = queue.popleft()
+        curr_elem, curr_segments, curr_depth, backlink = task
+        session_id = task.session_id
+        parent_page_url = task.parent_page_url or getattr(curr_elem, 'base_url', None)
         
         if not curr_segments:
             if curr_elem is not None:
@@ -179,9 +185,21 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                 seen_urls.add(value)
                 print(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {value} curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]}")
                 
+                # Graph event: page fetched
+                if _graph_integration and _graph_integration.is_enabled():
+                    _graph_integration.pipeline.on_page_fetched(
+                        url=value,
+                        elem=new_elem,
+                        depth=curr_depth,
+                        parent_url=parent_page_url,
+                        session_id=session_id
+                    )
+                
                 if curr_depth <= max_depth:
                     print(f"{curr_depth*'  '}[BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]} url: {value}")
-                    queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, value))
+                    next_task = Task(new_elem, curr_segments[1:], curr_depth+1, backlink=value, 
+                                   parent_page_url=value, session_id=session_id)
+                    queue.append(next_task)
                 else:
                     yield new_elem
             except requests.exceptions.RequestException as e:
@@ -204,9 +222,20 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                     print(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
                     continue
                 try:
+                    # Graph event: URL discovered
+                    if _graph_integration and _graph_integration.is_enabled() and parent_page_url:
+                        _graph_integration.pipeline.on_url_discovered(
+                            source_url=parent_page_url,
+                            target_url=url,
+                            session_id=session_id
+                        )
+                    
                     if curr_depth <= max_depth:
                         # Don't bump the depth here, just queue up the URL to be processed at the next depth
-                        queue.append(Task(None, [('url', url)] + curr_segments[1:], curr_depth, curr_elem.base_url))
+                        next_task = Task(None, [('url', url)] + curr_segments[1:], curr_depth, 
+                                       backlink=curr_elem.base_url, parent_page_url=parent_page_url,
+                                       session_id=session_id, discovered_from_url=parent_page_url)
+                        queue.append(next_task)
                     # else:
                     #     # TODO: Should I just queue this up as a `url` op?
                     #     seen_urls.add(url)
@@ -240,10 +269,21 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                         # print(f"{curr_depth*'  '}[BFS][{op}] Yielding URL: {url}")
                         # yield html.fromstring(fetch_html(url), base_url=url)
                         continue
+                    # Graph event: URL discovered  
+                    if _graph_integration and _graph_integration.is_enabled() and parent_page_url:
+                        _graph_integration.pipeline.on_url_discovered(
+                            source_url=parent_page_url,
+                            target_url=url,
+                            session_id=session_id
+                        )
+                    
                     _segments = [('url_inf_2', (url, value))] + curr_segments[1:]
                     print(f"{curr_depth*'  '}[BFS][{op}] Queueing url_inf_2 for URL: {url} with segments: {_segments}")
                     # Not incrementing since we do not actually fetch the URL here
-                    queue.append(Task(None, _segments, curr_depth, curr_elem.base_url))
+                    next_task = Task(None, _segments, curr_depth, backlink=curr_elem.base_url,
+                                   parent_page_url=parent_page_url, session_id=session_id, 
+                                   discovered_from_url=parent_page_url)
+                    queue.append(next_task)
 
                 except Exception as e:
                     print(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
@@ -266,6 +306,16 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                 seen_urls.add(url)
                 print(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {url}")
                 
+                # Graph event: page fetched
+                if _graph_integration and _graph_integration.is_enabled():
+                    _graph_integration.pipeline.on_page_fetched(
+                        url=url,
+                        elem=new_elem,
+                        depth=curr_depth,
+                        parent_url=parent_page_url,
+                        session_id=session_id
+                    )
+                
                 # If no more segments, it means user wants to fetch the html elements
                 # if not curr_segments[1:]:
                 #     print(f"{curr_depth*'  '}[BFS][{op}] Yielding URL: {url}")
@@ -275,11 +325,15 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                 if curr_depth <= max_depth:
                     # Queue the new element for further xpath evaluation
                     print(f"{curr_depth*'  '}[BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]} url: {url}")
-                    queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, new_elem.base_url))
+                    next_task1 = Task(new_elem, curr_segments[1:], curr_depth+1, backlink=new_elem.base_url,
+                                    parent_page_url=url, session_id=session_id)
+                    queue.append(next_task1)
                     # For url_inf, also re-enqueue for further infinite expansion
                     _segments = [('url_inf', prev_op_value)] + curr_segments[1:]
                     print(f"{curr_depth*'  '}[BFS][{op}] Queueing url_inf for URL: {url} with segments: {_segments}, new_elem: {new_elem}")
-                    queue.append(Task(new_elem, _segments, curr_depth+1, new_elem.base_url))
+                    next_task2 = Task(new_elem, _segments, curr_depth+1, backlink=new_elem.base_url,
+                                    parent_page_url=url, session_id=session_id)
+                    queue.append(next_task2)
                 else:
                     # print(f"{curr_depth*'  '}[BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
                     # queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, new_elem.base_url))
@@ -296,6 +350,16 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
             if len(curr_segments) == 1:
                 elems = curr_elem.xpath(value)
                 for elem in elems:
+                    # Graph event: element extracted (for final results)
+                    if (_graph_integration and _graph_integration.is_enabled() and 
+                        parent_page_url and hasattr(elem, 'tag')):
+                        _graph_integration.pipeline.on_element_extracted(
+                            page_url=parent_page_url,
+                            element=elem,
+                            xpath=value,
+                            session_id=session_id
+                        )
+                    
                     yield WxStr(elem, base_url=base_url) if isinstance(elem, str) else elem
             else:
                 next_op, next_val = curr_segments[1]
@@ -313,8 +377,20 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                             print(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
                             continue
                         try:
+                            # Graph event: URL discovered
+                            if _graph_integration and _graph_integration.is_enabled() and parent_page_url:
+                                _graph_integration.pipeline.on_url_discovered(
+                                    source_url=parent_page_url,
+                                    target_url=url,
+                                    xpath=_path_exp,
+                                    session_id=session_id
+                                )
+                            
                             if curr_depth < max_depth:
-                                queue.append(Task(None, [('url', url)] + curr_segments[2:], curr_depth+1, backlink=base_url))
+                                next_task = Task(None, [('url', url)] + curr_segments[2:], curr_depth+1, 
+                                               backlink=base_url, parent_page_url=parent_page_url,
+                                               session_id=session_id, discovered_from_url=parent_page_url)
+                                queue.append(next_task)
                             else:
                                 # TODO: Should I just queue this up as a `url` op?
                                 seen_urls.add(url)
