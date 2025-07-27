@@ -11,6 +11,8 @@ import wxpath
 ## EXAMPLES
 # Starting from Expression language's wiki, infinitely crawl all child links (and child's child's links recursively).
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///main//a/url(@href)"
+# The same expression written differently:
+path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//main//a/@href)"
 
 # Modify max_depth to limit the BFS tree (crawl depth).
 items = list(wxpath.core.wxpath(path_expr, max_depth=1))
@@ -61,11 +63,16 @@ MIT
         shortdescription://div[contains(@class, "shortdescription")]/text()
     }
     ```
+5. Build out pipeline/extention system that allows for:
+    1. More precise webpage processing
+    2. Finetuned crawling - we can direct an infinite crawl via xpath filtering and xpath operations, 
+       however, more complex logic can be implemented to prune the search tree.
+
 
 ## Roadmap (rough and subject to drastic change)
 
 1. Tighten up core.py
-    * Remove or hide (behind a flag) debug print statements
+    * ~~Remove or hide (behind a flag) debug print statements~~
     * Refactor parsing code into separate submodule
     * Standardize operations ("op" in "op, val" pairs) related to xpath'ing and crawling instructions
 2. Create sample projects that utilize its crawling features

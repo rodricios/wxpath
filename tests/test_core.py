@@ -40,6 +40,13 @@ def test_parse_wxpath_expr_mixed_segments():
     assert parse_wxpath_expr(expr) == expected
 
 
+def test_parse_wxpath_expr_filtered_inf_url_equality_filter():
+    path_expr_1 = "url('https://en.wikipedia.org/wiki/Expression_language')///main//a/url(@href)"
+    # The same expression written differently:
+    path_expr_2 = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//main//a/@href)"
+    assert parse_wxpath_expr(path_expr_1) == parse_wxpath_expr(path_expr_2)
+
+
 def test_extract_arg_with_quotes():
     assert extract_arg_from_url_xpath_op("url('abc')") == 'abc'
     assert extract_arg_from_url_xpath_op('url("def")') == 'def'
