@@ -8,7 +8,7 @@
 ```python
 import wxpath
 
-## EXAMPLES
+## EXAMPLE 1
 # Starting from Expression language's wiki, infinitely crawl all child links (and child's child's links recursively).
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///main//a/url(@href)"
 # The same expression written differently:
@@ -17,9 +17,23 @@ path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//ma
 # Modify max_depth to limit the BFS tree (crawl depth).
 items = list(wxpath.core.wxpath(path_expr, max_depth=1))
 
-# --- #
+
+## EXAMPLE 2
 # Starting from Expression language's wiki, crawl all child links, and extract all each child's links (hrefs).
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//url(@href[starts-with(., '/wiki/')])//a/@href"
+
+
+## EXAMPLE 3
+# Infinitely crawls Expression language's wiki's child links and childs' child links (recursively)
+# and then, for each child link crawled, extracts objects with the named fields as a dict.
+ path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
+     ///main//a/url(@href)
+     /{
+     title://span[contains(@class, "mw-page-title-main")]/text()[0],
+     shortdescription://div[contains(@class, "shortdescription")]/text()[0],
+     url://link[@rel='canonical']/@href[0]
+ }"""
+
 
 # Under the hood of wxpath.core.wxpath, we generate `segments` list, revealing the operations executed to
 # accomplish the crawl.
@@ -53,7 +67,7 @@ MIT
 2. ~~Support more infinite crawl filterings:~~
     * ~~`url('https://en.wikipedia.org/wiki/United_States')///main//a/url(@href)`~~
 3. Flesh out tests on filtered infinite crawls
-4. Extend DSL to support inline, multiple field extractions.
+4. ~~Extend DSL to support inline, multiple field extractions~~.
     * `url('example.com')//{field_name:<xpath>}`
     * `url('example.com')//xpath/filter/{field_name:<xpath>}`
     * The return object would be a list of dicts with field_name:value (value extracted from the xpath)

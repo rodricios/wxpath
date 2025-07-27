@@ -506,3 +506,67 @@ def test_parse_wxpath_expr_url_from_attr_without_elem():
     with pytest.raises(ValueError) as excinfo:
         parse_wxpath_expr(expr)
     assert "Path expr cannot start with [//]url(@<attr>)" in str(excinfo.value)
+
+
+def test_parse_wxpath_expr_object_segment():
+    expr = "url('http://example.com')/{ title://h1/text() }"
+    parsed = parse_wxpath_expr(expr)
+    assert parsed == [
+        ('url', 'http://example.com'),
+        ('object', "/{ title://h1/text() }"),
+    ]
+
+
+def test_evaluate_wxpath_bfs_iter_object_extraction(monkeypatch):
+    pages = {
+        'http://test/': b"""
+            <html><body>
+              <h1>The Test Page</h1>
+              <p>Alpha</p><p>Beta</p>
+            </body></html>
+        """
+    }
+
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+
+    expr = (
+        "url('http://test/')/{ "
+        "title://h1/text()[0], "
+        "paragraphs://p/text() "
+        "}"
+    )
+    segments = parse_wxpath_expr(expr)
+    results = list(evaluate_wxpath_bfs_iter(None, segments, max_depth=0))
+
+    assert len(results) == 1
+    obj = results[0]
+    assert obj['title'] == 'The Test Page'
+    assert obj['paragraphs'] == ['Alpha', 'Beta']
+
+
+def test_evaluate_wxpath_bfs_iter_object_indexing(monkeypatch):
+    pages = {
+        'http://test/': b"""
+            <html><body>
+              <p>One</p><p>Two</p><p>Three</p>
+            </body></html>
+        """
+    }
+
+    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+
+    expr = (
+        "url('http://test/')/{ "
+        "first://p/text()[0], "
+        "second://p/text()[1], "
+        "all://p/text() "
+        "}"
+    )
+    segments = parse_wxpath_expr(expr)
+    results = list(evaluate_wxpath_bfs_iter(None, segments, max_depth=0))
+
+    assert len(results) == 1
+    obj = results[0]
+    assert obj['first'] == 'One'
+    assert obj['second'] == 'Two'
+    assert obj['all'] == ['One', 'Two', 'Three']

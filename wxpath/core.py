@@ -67,11 +67,72 @@ def extract_arg_from_url_xpath_op(url_subsegment):
     return match.group(1).strip("'\"")  # Remove surrounding quotes if any
 
 
+def _split_top_level(s: str, sep: str = ',') -> list[str]:
+    """
+    Split *s* on *sep* but only at the top‑level (i.e. not inside (), [] or {}).
+
+    This is needed so we can correctly split key/value pairs inside an object
+    segment even when the value itself contains commas or braces.
+    """
+    parts, depth, current = [], 0, []
+    opening, closing = "([{", ")]}"
+
+    for ch in s:
+        if ch in opening:
+            depth += 1
+        elif ch in closing:
+            depth -= 1
+
+        if ch == sep and depth == 0:
+            parts.append(''.join(current))
+            current = []
+        else:
+            current.append(ch)
+
+    parts.append(''.join(current))
+    return parts
+
+
+def _parse_object_mapping(segment: str) -> dict[str, str]:
+    # Trim the leading '/{' or '{' and the trailing '}'.
+    if segment.startswith('/{'):
+        inner = segment[2:-1]
+    else:
+        inner = segment[1:-1]
+
+    mapping = {}
+    for part in _split_top_level(inner):
+        if not part.strip():
+            continue
+        key, expr = part.split(':', 1)
+        mapping[key.strip()] = expr.strip()
+    return mapping
+
+
 def parse_wxpath_expr(path_expr):
+    # remove newlines
+    path_expr = path_expr.replace('\n', '')
     segments = []
     i = 0
     n = len(path_expr)
     while i < n:
+        # Detect object‑construction segments:  '/{ ... }'  or  '{ ... }'
+        if path_expr[i] == '{' or (path_expr[i] == '/' and i + 1 < n and path_expr[i + 1] == '{'):
+            seg_start = i
+            # Skip the optional leading '/'
+            if path_expr[i] == '/':
+                i += 1
+            # We are now at the opening '{'
+            brace_depth = 1
+            i += 1
+            while i < n and brace_depth > 0:
+                if path_expr[i] == '{':
+                    brace_depth += 1
+                elif path_expr[i] == '}':
+                    brace_depth -= 1
+                i += 1
+            segments.append(path_expr[seg_start:i])  # include leading '/' if present
+            continue
         # Detect ///url(, //url(, /url(, or url(
         match = re.match(r'/{0,3}url\(', path_expr[i:])
         if match:
@@ -113,6 +174,8 @@ def parse_wxpath_expr(path_expr):
             raise ValueError(f"Unsupported url() segment: {s}")
         elif s.startswith('///'):
             parsed.append(('inf_xpath', "//" + s[3:]))
+        elif s.startswith('/{') or s.startswith('{'):
+            parsed.append(('object', s))
         else:
             parsed.append(('xpath', s))
     
@@ -231,7 +294,7 @@ def _haldle_url_inf__no_return(curr_elem, curr_segments, curr_depth, queue, back
     base_url = getattr(curr_elem, 'base_url', None)
     urls = make_links_absolute(elems, base_url)
     
-    log.debug(f"{curr_depth*'  '}[BFS][{op}] Found {len(urls)} URLs from {getattr(curr_elem, 'base_url', None) if curr_elem else None} at depth {curr_depth}")
+    log.debug(f"{curr_depth*'  '}[BFS][{op}] Found {len(urls)} URLs from {getattr(curr_elem, 'base_url', None) if curr_elem is not None else None} at depth {curr_depth}")
     for url in urls:
         if url in seen_urls:
             log.debug(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
@@ -332,6 +395,60 @@ def _handle_xpath(curr_elem, curr_segments, curr_depth, queue, backlink, max_dep
             raise ValueError(f"Unexpected segment pattern after XPath: {next_op}")
 
 
+def _handle_object(curr_elem, curr_segments, curr_depth, queue, backlink,
+                   max_depth, seen_urls, html_handlers):
+    """
+    Builds a JSON‑like dict from an object segment.
+
+    Each value expression is evaluated using the full wxpath DSL so it can
+    contain anything from a plain XPath to another `url()` hop.
+    """
+    op, value = curr_segments[0]
+
+    if curr_elem is None:
+        raise ValueError("Object segment requires an element context before it.")
+
+    obj_map = _parse_object_mapping(value)
+    result = {}
+
+    for key, expr in obj_map.items():
+        # Detect optional [n] scalar‑selection suffix.
+        idx = None
+        m = re.match(r'^(.*)\[(\d+)\]\s*$', expr)
+        if m:
+            expr_inner = m.group(1).strip()
+            idx = int(m.group(2))
+        else:
+            expr_inner = expr
+
+        # Parse the sub‑expression and decide whether it needs a root element.
+        sub_segments = parse_wxpath_expr(expr_inner)
+        root_elem = None if sub_segments[0][0] != 'xpath' else curr_elem
+
+        sub_results = list(
+            evaluate_wxpath_bfs_iter(
+                root_elem,
+                sub_segments,
+                max_depth=max_depth,
+                html_handlers=html_handlers,
+            )
+        )
+
+        # Apply index hint if present
+        if idx is not None:
+            sub_results = sub_results[idx:idx+1] if len(sub_results) > idx else []
+
+        if not sub_results:
+            result[key] = None
+        elif len(sub_results) == 1:
+            result[key] = sub_results[0]
+        else:
+            result[key] = sub_results
+
+    # Yield the constructed object; no further traversal after an object segment.
+    yield result
+
+
 def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_depth=0, html_handlers=[]):
     """
     BFS version of evaluate_wxpath.
@@ -362,7 +479,7 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
             continue
 
         op, value = curr_segments[0]
-        log.debug(f"{curr_depth*'  '}[BFS] op: {op}, value: {value} depth={curr_depth} elem.base_url={getattr(curr_elem, 'base_url', None) if curr_elem else None}")
+        log.debug(f"{curr_depth*'  '}[BFS] op: {op}, value: {value} depth={curr_depth} elem.base_url={getattr(curr_elem, 'base_url', None) if curr_elem is not None else None}")
         
         if op == 'url':
             yield from _handle_url(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers)
@@ -374,6 +491,9 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
             _handle_url_inf_2__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers)
         elif op == 'xpath':
             yield from _handle_xpath(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers)
+        elif op == 'object':
+            yield from _handle_object(curr_elem, curr_segments, curr_depth, queue,
+                                      backlink, max_depth, seen_urls, html_handlers)
         else:
             raise ValueError(f"Unknown operation: {op}")
 

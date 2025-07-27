@@ -21,7 +21,7 @@ class WxStr(str):
         return obj
 
     def __repr__(self):
-        return f"ExtractedStr({super().__repr__()}, base_url={self.base_url!r}, depth={self.depth})"
+        return f"WxStr({super().__repr__()}, base_url={self.base_url!r}, depth={self.depth})"
 
 
 class Task:
