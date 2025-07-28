@@ -1,8 +1,8 @@
 import pytest
 from wxpath.core import (
     parse_wxpath_expr,
-    extract_arg_from_url_xpath_op,
-    make_links_absolute,
+    _extract_arg_from_url_xpath_op,
+    _make_links_absolute,
 )
 
 from wxpath.core import evaluate_wxpath_bfs_iter
@@ -48,23 +48,23 @@ def test_parse_wxpath_expr_filtered_inf_url_equality_filter():
 
 
 def test_extract_arg_with_quotes():
-    assert extract_arg_from_url_xpath_op("url('abc')") == 'abc'
-    assert extract_arg_from_url_xpath_op('url("def")') == 'def'
+    assert _extract_arg_from_url_xpath_op("url('abc')") == 'abc'
+    assert _extract_arg_from_url_xpath_op('url("def")') == 'def'
 
 
 def test_extract_arg_without_quotes():
-    assert extract_arg_from_url_xpath_op('url(xyz)') == 'xyz'
+    assert _extract_arg_from_url_xpath_op('url(xyz)') == 'xyz'
 
 
 def test_extract_arg_invalid_raises():
     with pytest.raises(ValueError):
-        extract_arg_from_url_xpath_op('url()')
+        _extract_arg_from_url_xpath_op('url()')
 
 
 def test_make_links_absolute():
     links = ['a.html', 'http://example.com/b']
     base = 'http://example.com/path/index.html'
-    got = make_links_absolute(links, base)
+    got = _make_links_absolute(links, base)
     assert got == [
         'http://example.com/path/a.html',
         'http://example.com/b'
@@ -155,11 +155,15 @@ def test_evaluate_wxpath_bfs_iter__crawl_xpath_crawl(monkeypatch):
     pages = {
         'http://test/': b"""
             <html><body>
-              <main><a href="a.html">A</a></main>
+              <main>
+                <a href="a1.html">A</a>
+                <a href="a2.html">B</a>
+              </main>
               <a href="b.html">B</a>
             </body></html>
         """,
-        'http://test/a.html': b"<html><body><p>Page A</p></body></html>",
+        'http://test/a1.html': b"<html><body><p>Page A1</p></body></html>",
+        'http://test/a2.html': b"<html><body><p>Page A2</p></body></html>",
         'http://test/b.html': b"<html><body><p>Page B</p></body></html>",
     }
 
@@ -172,10 +176,12 @@ def test_evaluate_wxpath_bfs_iter__crawl_xpath_crawl(monkeypatch):
     results = list(evaluate_wxpath_bfs_iter(None, segments, max_depth=1))
 
     # 4: verify BFS order and base_url propagation
-    assert len(results) == 1
+    assert len(results) == 2
     assert results[0].get('depth') == '1'
+    assert results[1].get('depth') == '1'
     assert [e.base_url for e in results] == [
-        'http://test/a.html',
+        'http://test/a1.html',
+        'http://test/a2.html',
     ]
 
 
