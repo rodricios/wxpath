@@ -297,262 +297,263 @@ def evaluate_wxpath_bfs_iter(
             task = queue.popleft()
             curr_elem, curr_segments, curr_depth, backlink = task
             session_id = task.session_id
-        parent_page_url = task.parent_page_url or getattr(curr_elem, 'base_url', None)
-        
-        if not curr_segments:
-            if curr_elem is not None:
-                yield curr_elem
-            continue
-
-        op, value = curr_segments[0]
-        elem_base_url = getattr(curr_elem, 'base_url', None) if curr_elem else None
-        logger.debug("BFS op: %s, value: %s, depth: %d, elem.base_url: %s", 
-                    op, value, curr_depth, elem_base_url)
-        
-        if op == 'url':
-            # NOTE: Should I allow curr_elem to be not None? 
-            #   Pros: when adding backling attrib to new_elem, it's easy to add it from curr_elem.base_url. 
-            #   Cons: curr_elem.base_url might not be set. Also, we keep an extra reference to curr_elem for the next level - could potentially cause a memory leak.
-            if curr_elem is not None:
-                raise ValueError("Cannot use 'url()' at the start of path_expr with an element provided.")
-            if value.startswith('@'):
-                raise ValueError("Cannot use '@' in url() segment at the start of path_expr.")
-            if value in seen_urls:
-                logger.debug("BFS[%s] Skipping already seen URL: %s", op, value)
+            parent_page_url = task.parent_page_url or getattr(curr_elem, 'base_url', None)
+            
+            if not curr_segments:
+                if curr_elem is not None:
+                    yield curr_elem
                 continue
 
-            try:
-                html_content = fetch_html(value)
-                new_elem = html.fromstring(html_content, base_url=value)
-                new_elem.set('backlink', backlink)
-                if html_handlers:
-                    for handler in html_handlers:
-                        new_elem = handler(new_elem)
-                seen_urls.add(value)
-                logger.debug("BFS[%s] Fetched URL: %s at depth: %d, remaining segments: %s", 
-                           op, value, curr_depth, curr_segments[1:])
-                
-                # Graph event: page fetched
-                if _graph_integration and _graph_integration.is_enabled():
-                    _graph_integration.pipeline.on_page_fetched(
-                        url=value,
-                        elem=new_elem,
-                        depth=curr_depth,
-                        parent_url=parent_page_url,
-                        session_id=session_id
-                    )
-                
-                if curr_depth <= max_depth:
-                    logger.debug("BFS[%s] Queueing element for xpath evaluation at depth: %d, url: %s", 
-                               op, curr_depth, value)
-                    next_task = Task(new_elem, curr_segments[1:], curr_depth+1, backlink=value, 
-                                   parent_page_url=value, session_id=session_id)
-                    queue.append(next_task)
-                else:
-                    yield new_elem
-            except Exception as e:
-                logger.warning("BFS[%s] Error fetching URL %s: %s", op, value, e)
-                continue
-
-        elif op == 'url_from_attr':
-            if curr_elem is None:
-                raise ValueError("Element must be provided when op is 'url_from_attr'.")
-            url_op_arg = extract_arg_from_url_xpath_op(value)
-            if not url_op_arg.startswith('@'):
-                raise ValueError("Only '@*' is supported in url() segments not at the start of path_expr.")
-            _path_exp = value.split('url')[0] + url_op_arg
-            elems = curr_elem.xpath(_path_exp)
-            base_url = getattr(curr_elem, 'base_url', None)
-            urls = make_links_absolute(elems, base_url)
-
-            for url in urls:
-                if url in seen_urls:
-                    logger.debug("BFS[%s] Skipping already seen URL: %s", op, url)
+            op, value = curr_segments[0]
+            elem_base_url = getattr(curr_elem, 'base_url', None) if curr_elem else None
+            logger.debug("BFS op: %s, value: %s, depth: %d, elem.base_url: %s", 
+                        op, value, curr_depth, elem_base_url)
+            
+            if op == 'url':
+                # NOTE: Should I allow curr_elem to be not None? 
+                #   Pros: when adding backling attrib to new_elem, it's easy to add it from curr_elem.base_url. 
+                #   Cons: curr_elem.base_url might not be set. Also, we keep an extra reference to curr_elem for the next level - could potentially cause a memory leak.
+                if curr_elem is not None:
+                    raise ValueError("Cannot use 'url()' at the start of path_expr with an element provided.")
+                if value.startswith('@'):
+                    raise ValueError("Cannot use '@' in url() segment at the start of path_expr.")
+                if value in seen_urls:
+                    logger.debug("BFS[%s] Skipping already seen URL: %s", op, value)
                     continue
+
                 try:
-                    # Graph event: URL discovered
-                    if _graph_integration and _graph_integration.is_enabled() and parent_page_url:
-                        _graph_integration.pipeline.on_url_discovered(
-                            source_url=parent_page_url,
-                            target_url=url,
+                    html_content = fetch_html(value)
+                    new_elem = html.fromstring(html_content, base_url=value)
+                    new_elem.set('backlink', backlink)
+                    if html_handlers:
+                        for handler in html_handlers:
+                            new_elem = handler(new_elem)
+                    seen_urls.add(value)
+                    logger.debug("BFS[%s] Fetched URL: %s at depth: %d, remaining segments: %s", 
+                               op, value, curr_depth, curr_segments[1:])
+                    
+                    # Graph event: page fetched
+                    if _graph_integration and _graph_integration.is_enabled():
+                        _graph_integration.pipeline.on_page_fetched(
+                            url=value,
+                            elem=new_elem,
+                            depth=curr_depth,
+                            parent_url=parent_page_url,
                             session_id=session_id
                         )
                     
                     if curr_depth <= max_depth:
-                        # Don't bump the depth here, just queue up the URL to be processed at the next depth
-                        next_task = Task(None, [('url', url)] + curr_segments[1:], curr_depth, 
-                                       backlink=curr_elem.base_url, parent_page_url=parent_page_url,
-                                       session_id=session_id, discovered_from_url=parent_page_url)
+                        logger.debug("BFS[%s] Queueing element for xpath evaluation at depth: %d, url: %s", 
+                                   op, curr_depth, value)
+                        next_task = Task(new_elem, curr_segments[1:], curr_depth+1, backlink=value, 
+                                       parent_page_url=value, session_id=session_id)
                         queue.append(next_task)
-                    # else:
-                    #     # TODO: Should I just queue this up as a `url` op?
-                    #     seen_urls.add(url)
-                    #     elem = html.fromstring(fetch_html(url), base_url=url)
-                    #     elem.set('backlink', curr_elem.base_url)
-                    #     yield elem
-                    # seen_urls.add(url)
+                    else:
+                        yield new_elem
                 except Exception as e:
-                    logger.warning("BFS[%s] Error processing URL %s: %s", op, url, e)
+                    logger.warning("BFS[%s] Error fetching URL %s: %s", op, value, e)
                     continue
 
-        elif op == 'url_inf':
-            # Infinite crawl
-            url_op_arg = extract_arg_from_url_xpath_op(value)
-            if not url_op_arg.startswith('@'):
-                raise ValueError("Only '@*' is supported in url() segments for infinite crawl.")
-            _path_exp = ".//" + url_op_arg
-            elems = curr_elem.xpath(_path_exp)
-            base_url = getattr(curr_elem, 'base_url', None)
-            urls = make_links_absolute(elems, base_url)
-            
-            source_url = getattr(curr_elem, 'base_url', None) if curr_elem else None
-            logger.debug("BFS[%s] Found %d URLs from %s at depth %d", op, len(urls), source_url, curr_depth)
-            for url in urls:
+            elif op == 'url_from_attr':
+                if curr_elem is None:
+                    raise ValueError("Element must be provided when op is 'url_from_attr'.")
+                url_op_arg = extract_arg_from_url_xpath_op(value)
+                if not url_op_arg.startswith('@'):
+                    raise ValueError("Only '@*' is supported in url() segments not at the start of path_expr.")
+                _path_exp = value.split('url')[0] + url_op_arg
+                elems = curr_elem.xpath(_path_exp)
+                base_url = getattr(curr_elem, 'base_url', None)
+                urls = make_links_absolute(elems, base_url)
+
+                for url in urls:
+                    if url in seen_urls:
+                        logger.debug("BFS[%s] Skipping already seen URL: %s", op, url)
+                        continue
+                    try:
+                        # Graph event: URL discovered
+                        if _graph_integration and _graph_integration.is_enabled() and parent_page_url:
+                            _graph_integration.pipeline.on_url_discovered(
+                                source_url=parent_page_url,
+                                target_url=url,
+                                session_id=session_id
+                            )
+                        
+                        if curr_depth < max_depth:
+                            # Queue up the URL to be processed at the next depth
+                            next_task = Task(None, [('url', url)] + curr_segments[1:], curr_depth + 1, 
+                                           backlink=curr_elem.base_url, parent_page_url=parent_page_url,
+                                           session_id=session_id, discovered_from_url=parent_page_url)
+                            queue.append(next_task)
+                        # else:
+                        #     # TODO: Should I just queue this up as a `url` op?
+                        #     seen_urls.add(url)
+                        #     elem = html.fromstring(fetch_html(url), base_url=url)
+                        #     elem.set('backlink', curr_elem.base_url)
+                        #     yield elem
+                        # seen_urls.add(url)
+                    except Exception as e:
+                        logger.warning("BFS[%s] Error processing URL %s: %s", op, url, e)
+                        continue
+
+            elif op == 'url_inf':
+                # Infinite crawl
+                url_op_arg = extract_arg_from_url_xpath_op(value)
+                if not url_op_arg.startswith('@'):
+                    raise ValueError("Only '@*' is supported in url() segments for infinite crawl.")
+                _path_exp = ".//" + url_op_arg
+                elems = curr_elem.xpath(_path_exp)
+                base_url = getattr(curr_elem, 'base_url', None)
+                urls = make_links_absolute(elems, base_url)
+                
+                source_url = getattr(curr_elem, 'base_url', None) if curr_elem else None
+                logger.debug("BFS[%s] Found %d URLs from %s at depth %d", op, len(urls), source_url, curr_depth)
+                for url in urls:
+                    if url in seen_urls:
+                        logger.debug("BFS[%s] Skipping already seen URL: %s", op, url)
+                        continue
+                    try:
+                        if curr_depth >= max_depth:
+                            logger.debug("BFS[%s] Reached max depth for URL: %s, not queuing further", op, url)
+                            continue
+                        # Graph event: URL discovered  
+                        if _graph_integration and _graph_integration.is_enabled() and parent_page_url:
+                            _graph_integration.pipeline.on_url_discovered(
+                                source_url=parent_page_url,
+                                target_url=url,
+                                session_id=session_id
+                            )
+                        
+                        _segments = [('url_inf_2', (url, value))] + curr_segments[1:]
+                        logger.debug("BFS[%s] Queueing url_inf_2 for URL: %s with segments: %s", op, url, _segments)
+                        # Not incrementing since we do not actually fetch the URL here
+                        next_task = Task(None, _segments, curr_depth, backlink=curr_elem.base_url,
+                                       parent_page_url=parent_page_url, session_id=session_id, 
+                                       discovered_from_url=parent_page_url)
+                        queue.append(next_task)
+
+                    except Exception as e:
+                        logger.warning("BFS[%s] Error processing URL %s: %s", op, url, e)
+                        continue
+
+            elif op == 'url_inf_2':
+                url, prev_op_value = value
+                if curr_elem is not None:
+                    raise ValueError("Cannot use 'url()' at the start of path_expr with an element provided.")
                 if url in seen_urls:
                     logger.debug("BFS[%s] Skipping already seen URL: %s", op, url)
                     continue
                 try:
-                    if curr_depth > max_depth:
-                        logger.debug("BFS[%s] Reached max depth for URL: %s, not queuing further", op, url)
-                        # seen_urls.add(url)
-                        # print(f"{curr_depth*'  '}[BFS][{op}] Yielding URL: {url}")
-                        # yield html.fromstring(fetch_html(url), base_url=url)
-                        continue
-                    # Graph event: URL discovered  
-                    if _graph_integration and _graph_integration.is_enabled() and parent_page_url:
-                        _graph_integration.pipeline.on_url_discovered(
-                            source_url=parent_page_url,
-                            target_url=url,
+                    html_content = fetch_html(url)
+                    new_elem = html.fromstring(html_content, base_url=url)
+                    new_elem.set('backlink', backlink)
+                    if html_handlers:
+                        for handler in html_handlers:
+                            new_elem = handler(new_elem)
+                    seen_urls.add(url)
+                    logger.debug("BFS[%s] Fetched URL: %s", op, url)
+                    
+                    # Graph event: page fetched
+                    if _graph_integration and _graph_integration.is_enabled():
+                        _graph_integration.pipeline.on_page_fetched(
+                            url=url,
+                            elem=new_elem,
+                            depth=curr_depth,
+                            parent_url=parent_page_url,
                             session_id=session_id
                         )
                     
-                    _segments = [('url_inf_2', (url, value))] + curr_segments[1:]
-                    logger.debug("BFS[%s] Queueing url_inf_2 for URL: %s with segments: %s", op, url, _segments)
-                    # Not incrementing since we do not actually fetch the URL here
-                    next_task = Task(None, _segments, curr_depth, backlink=curr_elem.base_url,
-                                   parent_page_url=parent_page_url, session_id=session_id, 
-                                   discovered_from_url=parent_page_url)
-                    queue.append(next_task)
-
+                    # If no more segments, it means user wants to fetch the html elements
+                    # if not curr_segments[1:]:
+                    #     print(f"{curr_depth*'  '}[BFS][{op}] Yielding URL: {url}")
+                    #     # OR queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, new_elem.base_url))
+                    #     yield new_elem
+                    
+                    if curr_depth <= max_depth:
+                        # Queue the new element for further xpath evaluation
+                        logger.debug("BFS[%s] Queueing element for xpath evaluation at depth: %d, url: %s", 
+                                   op, curr_depth, url)
+                        next_task1 = Task(new_elem, curr_segments[1:], curr_depth+1, backlink=new_elem.base_url,
+                                        parent_page_url=url, session_id=session_id)
+                        queue.append(next_task1)
+                        # For url_inf, also re-enqueue for further infinite expansion
+                        _segments = [('url_inf', prev_op_value)] + curr_segments[1:]
+                        logger.debug("BFS[%s] Queueing url_inf for URL: %s with segments: %s", 
+                                   op, url, _segments)
+                        next_task2 = Task(new_elem, _segments, curr_depth+1, backlink=new_elem.base_url,
+                                        parent_page_url=url, session_id=session_id)
+                        queue.append(next_task2)
+                    else:
+                        # print(f"{curr_depth*'  '}[BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
+                        # queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, new_elem.base_url))
+                        # yield new_elem
+                        pass
                 except Exception as e:
-                    logger.warning("BFS[%s] Error processing URL %s: %s", op, url, e)
+                    logger.warning("BFS[%s] Error fetching URL %s: %s", op, url, e)
                     continue
 
-        elif op == 'url_inf_2':
-            url, prev_op_value = value
-            if curr_elem is not None:
-                raise ValueError("Cannot use 'url()' at the start of path_expr with an element provided.")
-            if url in seen_urls:
-                logger.debug("BFS[%s] Skipping already seen URL: %s", op, url)
-                continue
-            try:
-                html_content = fetch_html(url)
-                new_elem = html.fromstring(html_content, base_url=url)
-                new_elem.set('backlink', backlink)
-                if html_handlers:
-                    for handler in html_handlers:
-                        new_elem = handler(new_elem)
-                seen_urls.add(url)
-                logger.debug("BFS[%s] Fetched URL: %s", op, url)
-                
-                # Graph event: page fetched
-                if _graph_integration and _graph_integration.is_enabled():
-                    _graph_integration.pipeline.on_page_fetched(
-                        url=url,
-                        elem=new_elem,
-                        depth=curr_depth,
-                        parent_url=parent_page_url,
-                        session_id=session_id
-                    )
-                
-                # If no more segments, it means user wants to fetch the html elements
-                # if not curr_segments[1:]:
-                #     print(f"{curr_depth*'  '}[BFS][{op}] Yielding URL: {url}")
-                #     # OR queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, new_elem.base_url))
-                #     yield new_elem
-                
-                if curr_depth <= max_depth:
-                    # Queue the new element for further xpath evaluation
-                    logger.debug("BFS[%s] Queueing element for xpath evaluation at depth: %d, url: %s", 
-                               op, curr_depth, url)
-                    next_task1 = Task(new_elem, curr_segments[1:], curr_depth+1, backlink=new_elem.base_url,
-                                    parent_page_url=url, session_id=session_id)
-                    queue.append(next_task1)
-                    # For url_inf, also re-enqueue for further infinite expansion
-                    _segments = [('url_inf', prev_op_value)] + curr_segments[1:]
-                    logger.debug("BFS[%s] Queueing url_inf for URL: %s with segments: %s", 
-                               op, url, _segments)
-                    next_task2 = Task(new_elem, _segments, curr_depth+1, backlink=new_elem.base_url,
-                                    parent_page_url=url, session_id=session_id)
-                    queue.append(next_task2)
+            elif op == 'xpath':
+                if curr_elem is None:
+                    raise ValueError("Element must be provided when path_expr does not start with 'url()'.")
+                base_url = getattr(curr_elem, 'base_url', None)
+                if len(curr_segments) == 1:
+                    elems = curr_elem.xpath(value)
+                    for elem in elems:
+                        # Graph event: element extracted (for final results)
+                        if (_graph_integration and _graph_integration.is_enabled() and 
+                            parent_page_url and hasattr(elem, 'tag')):
+                            _graph_integration.pipeline.on_element_extracted(
+                                page_url=parent_page_url,
+                                element=elem,
+                                xpath=value,
+                                session_id=session_id
+                            )
+                        
+                        yield WxStr(elem, base_url=base_url) if isinstance(elem, str) else elem
                 else:
-                    # print(f"{curr_depth*'  '}[BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
-                    # queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, new_elem.base_url))
-                    # yield new_elem
-                    pass
-            except Exception as e:
-                logger.warning("BFS[%s] Error fetching URL %s: %s", op, url, e)
-                continue
-
-        elif op == 'xpath':
-            if curr_elem is None:
-                raise ValueError("Element must be provided when path_expr does not start with 'url()'.")
-            base_url = getattr(curr_elem, 'base_url', None)
-            if len(curr_segments) == 1:
-                elems = curr_elem.xpath(value)
-                for elem in elems:
-                    # Graph event: element extracted (for final results)
-                    if (_graph_integration and _graph_integration.is_enabled() and 
-                        parent_page_url and hasattr(elem, 'tag')):
-                        _graph_integration.pipeline.on_element_extracted(
-                            page_url=parent_page_url,
-                            element=elem,
-                            xpath=value,
-                            session_id=session_id
-                        )
-                    
-                    yield WxStr(elem, base_url=base_url) if isinstance(elem, str) else elem
+                    next_op, next_val = curr_segments[1]
+                    # NOTE: we look ahead because it's more efficient to retrieve all childs URLs at once, as opposed to queue up.
+                    # Consider modifying this logic to queue up URLs at a top level operation handler.
+                    if next_op == 'url_from_attr':
+                        url_or_attr = extract_arg_from_url_xpath_op(next_val)
+                        if not url_or_attr.startswith('@'):
+                            raise ValueError("Only '@*' is supported in url() segments not at the start of path_expr.")
+                        _path_exp = value.strip() + next_val.split('url')[0] + url_or_attr
+                        elems = curr_elem.xpath(_path_exp)
+                        urls = make_links_absolute(elems, base_url)
+                        for url in urls:
+                            if url in seen_urls:
+                                logger.debug("BFS[%s] Skipping already seen URL: %s", op, url)
+                                continue
+                            try:
+                                # Graph event: URL discovered
+                                if _graph_integration and _graph_integration.is_enabled() and parent_page_url:
+                                    _graph_integration.pipeline.on_url_discovered(
+                                        source_url=parent_page_url,
+                                        target_url=url,
+                                        xpath=_path_exp,
+                                        session_id=session_id
+                                    )
+                                
+                                if curr_depth < max_depth:
+                                    next_task = Task(None, [('url', url)] + curr_segments[2:], curr_depth+1, 
+                                                   backlink=base_url, parent_page_url=parent_page_url,
+                                                   session_id=session_id, discovered_from_url=parent_page_url)
+                                    queue.append(next_task)
+                                else:
+                                    # At max depth, fetch and yield the URL directly
+                                    try:
+                                        seen_urls.add(url)
+                                        html_content = fetch_html(url)
+                                        yield html.fromstring(html_content, base_url=url)
+                                    except Exception as e:
+                                        logger.warning("BFS[%s] Error fetching URL at max depth %s: %s", op, url, e)
+                            except Exception as e:
+                                logger.warning("BFS[%s] Error processing URL %s: %s", op, url, e)
+                                continue
+                    else:
+                        raise ValueError(f"Unexpected segment pattern after XPath: {next_op}")
             else:
-                next_op, next_val = curr_segments[1]
-                # NOTE: we look ahead because it's more efficient to retrieve all childs URLs at once, as opposed to queue up.
-                # Consider modifying this logic to queue up URLs at a top level operation handler.
-                if next_op == 'url_from_attr':
-                    url_or_attr = extract_arg_from_url_xpath_op(next_val)
-                    if not url_or_attr.startswith('@'):
-                        raise ValueError("Only '@*' is supported in url() segments not at the start of path_expr.")
-                    _path_exp = value.strip() + next_val.split('url')[0] + url_or_attr
-                    elems = curr_elem.xpath(_path_exp)
-                    urls = make_links_absolute(elems, base_url)
-                    for url in urls:
-                        if url in seen_urls:
-                            logger.debug("BFS[%s] Skipping already seen URL: %s", op, url)
-                            continue
-                        try:
-                            # Graph event: URL discovered
-                            if _graph_integration and _graph_integration.is_enabled() and parent_page_url:
-                                _graph_integration.pipeline.on_url_discovered(
-                                    source_url=parent_page_url,
-                                    target_url=url,
-                                    xpath=_path_exp,
-                                    session_id=session_id
-                                )
-                            
-                            if curr_depth < max_depth:
-                                next_task = Task(None, [('url', url)] + curr_segments[2:], curr_depth+1, 
-                                               backlink=base_url, parent_page_url=parent_page_url,
-                                               session_id=session_id, discovered_from_url=parent_page_url)
-                                queue.append(next_task)
-                            else:
-                                # TODO: Should I just queue this up as a `url` op?
-                                seen_urls.add(url)
-                                yield html.fromstring(fetch_html(url), base_url=url)
-                        except Exception as e:
-                            logger.warning("BFS[%s] Error processing URL %s: %s", op, url, e)
-                            continue
-                else:
-                    raise ValueError(f"Unexpected segment pattern after XPath: {next_op}")
-        else:
-            raise ValueError(f"Unknown operation: {op}")
+                raise ValueError(f"Unknown operation: {op}")
     
     finally:
         # Cleanup: Clear any remaining references to help with garbage collection
