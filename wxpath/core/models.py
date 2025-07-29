@@ -9,7 +9,7 @@ class WxElement(html.HtmlElement):
         # If no custom DSL, use standard XPath
         if not re.split(r"(url\(.+?\))", expr):
             return self.xpath(expr, **kwargs)
-        from wxpath.core import wxpath  # your DSL function
+        from wxpath.core.engine import wxpath  # your DSL function
         return wxpath(self, expr, depth=depth)
 
 
@@ -51,4 +51,3 @@ class Task:
             session_id=session_id or self.session_id,
             discovered_from_url=discovered_from_url or self.discovered_from_url
         )
-    

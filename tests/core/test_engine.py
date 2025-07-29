@@ -1,11 +1,10 @@
 import pytest
-from wxpath.core import (
+from wxpath.core.engine import (
     parse_wxpath_expr,
     extract_arg_from_url_xpath_op,
-    make_links_absolute,
+    evaluate_wxpath_bfs_iter
 )
-
-from wxpath.core import evaluate_wxpath_bfs_iter
+from wxpath.core.http import make_links_absolute
 from lxml import html
 
 

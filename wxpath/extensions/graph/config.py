@@ -1,5 +1,5 @@
 """
-Configuration management for wxpath Neo4j extension.
+Configuration management for wxpath graph database extension.
 
 This module handles configuration loading from environment variables,
 configuration files, and provides default settings for the graph database
@@ -71,44 +71,21 @@ class PipelineConfig:
 
 
 @dataclass
-class LoggingConfig:
-    """Configuration for logging."""
-    level: str = "INFO"
-    format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    file_path: Optional[str] = None
-    max_file_size: int = 10 * 1024 * 1024  # 10MB
-    backup_count: int = 5
-    
-    @classmethod
-    def from_env(cls) -> 'LoggingConfig':
-        """Create configuration from environment variables."""
-        return cls(
-            level=os.getenv('WXPATH_LOG_LEVEL', cls.level),
-            format=os.getenv('WXPATH_LOG_FORMAT', cls.format),
-            file_path=os.getenv('WXPATH_LOG_FILE'),
-            max_file_size=int(os.getenv('WXPATH_LOG_MAX_FILE_SIZE', cls.max_file_size)),
-            backup_count=int(os.getenv('WXPATH_LOG_BACKUP_COUNT', cls.backup_count))
-        )
-
-
-@dataclass
-class WxPathConfig:
-    """Main configuration container for wxpath Neo4j extension."""
+class GraphConfig:
+    """Main configuration container for graph database extension."""
     neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
-    logging: LoggingConfig = field(default_factory=LoggingConfig)
     
     @classmethod
-    def from_env(cls) -> 'WxPathConfig':
+    def from_env(cls) -> 'GraphConfig':
         """Create configuration from environment variables."""
         return cls(
             neo4j=Neo4jConfig.from_env(),
-            pipeline=PipelineConfig.from_env(),
-            logging=LoggingConfig.from_env()
+            pipeline=PipelineConfig.from_env()
         )
     
     @classmethod
-    def from_file(cls, config_path: str) -> 'WxPathConfig':
+    def from_file(cls, config_path: str) -> 'GraphConfig':
         """Create configuration from a file."""
         config_file = Path(config_path)
         if not config_file.exists():
@@ -151,109 +128,53 @@ class WxPathConfig:
                 'extract_metadata': self.pipeline.extract_metadata,
                 'max_text_length': self.pipeline.max_text_length,
                 'ignore_duplicate_pages': self.pipeline.ignore_duplicate_pages
-            },
-            'logging': {
-                'level': self.logging.level,
-                'format': self.logging.format,
-                'file_path': self.logging.file_path,
-                'max_file_size': self.logging.max_file_size,
-                'backup_count': self.logging.backup_count
             }
         }
 
 
-def get_config() -> WxPathConfig:
+def get_graph_config() -> GraphConfig:
     """Get configuration, first from environment, then from default config file."""
     # Try to load from environment first
-    config = WxPathConfig.from_env()
+    config = GraphConfig.from_env()
     
     # Check for config file in common locations
     config_paths = [
-        'wxpath_config.json',
-        'wxpath_config.yml',
-        'wxpath_config.yaml',
-        os.path.expanduser('~/.wxpath/config.json'),
-        os.path.expanduser('~/.wxpath/config.yml'),
-        '/etc/wxpath/config.json',
-        '/etc/wxpath/config.yml'
+        'wxpath_graph_config.json',
+        'wxpath_graph_config.yml',
+        'wxpath_graph_config.yaml',
+        os.path.expanduser('~/.wxpath/graph_config.json'),
+        os.path.expanduser('~/.wxpath/graph_config.yml'),
+        '/etc/wxpath/graph_config.json',
+        '/etc/wxpath/graph_config.yml'
     ]
     
     for config_path in config_paths:
         if os.path.exists(config_path):
             try:
-                file_config = WxPathConfig.from_file(config_path)
-                # Merge file config with env config (env takes precedence)
-                return merge_configs(file_config, config)
+                file_config = GraphConfig.from_file(config_path)
+                # For now, just return file config (could implement merging)
+                return file_config
             except Exception as e:
-                print(f"Warning: Could not load config from {config_path}: {e}")
+                print(f"Warning: Could not load graph config from {config_path}: {e}")
                 continue
     
     return config
 
 
-def merge_configs(base_config: WxPathConfig, override_config: WxPathConfig) -> WxPathConfig:
-    """Merge two configurations, with override_config taking precedence."""
-    # This is a simple merge - in a real implementation, you might want
-    # more sophisticated merging logic
-    return override_config
-
-
-def setup_logging(config: LoggingConfig):
-    """Setup logging based on configuration."""
-    import logging
-    import logging.handlers
-    
-    # Create logger
-    logger = logging.getLogger('wxpath')
-    logger.setLevel(getattr(logging, config.level.upper()))
-    
-    # Create formatter
-    formatter = logging.Formatter(config.format)
-    
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-    
-    # File handler (if specified)
-    if config.file_path:
-        file_handler = logging.handlers.RotatingFileHandler(
-            filename=config.file_path,
-            maxBytes=config.max_file_size,
-            backupCount=config.backup_count
-        )
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    
-    return logger
-
-
 # Global configuration instance
-_global_config: Optional[WxPathConfig] = None
+_global_graph_config: Optional[GraphConfig] = None
 
 
-def initialize_config(config: Optional[WxPathConfig] = None) -> WxPathConfig:
-    """Initialize global configuration."""
-    global _global_config
-    _global_config = config or get_config()
-    
-    # Setup logging
-    setup_logging(_global_config.logging)
-    
-    return _global_config
+def get_global_graph_config() -> GraphConfig:
+    """Get the global graph configuration instance."""
+    global _global_graph_config
+    if _global_graph_config is None:
+        _global_graph_config = get_graph_config()
+    return _global_graph_config
 
 
-def get_global_config() -> WxPathConfig:
-    """Get the global configuration instance."""
-    global _global_config
-    if _global_config is None:
-        _global_config = initialize_config()
-    return _global_config
-
-
-# Configuration validation
-def validate_config(config: WxPathConfig) -> List[str]:
-    """Validate configuration and return list of errors."""
+def validate_graph_config(config: GraphConfig) -> List[str]:
+    """Validate graph configuration and return list of errors."""
     errors = []
     
     # Validate Neo4j config
@@ -269,10 +190,5 @@ def validate_config(config: WxPathConfig) -> List[str]:
         errors.append("Pipeline batch size must be positive")
     if config.pipeline.max_text_length <= 0:
         errors.append("Pipeline max text length must be positive")
-    
-    # Validate logging config
-    valid_log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
-    if config.logging.level.upper() not in valid_log_levels:
-        errors.append(f"Invalid log level: {config.logging.level}")
     
     return errors

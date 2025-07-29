@@ -10,9 +10,9 @@ import logging
 from typing import Optional, Iterator, Any, Dict
 from contextlib import contextmanager
 
-from .config import get_global_config
-from .neo4j_extension import GraphPipeline, create_graph_pipeline, Neo4jConnection
-from .models import Task
+from .config import get_global_graph_config
+from .pipeline import GraphPipeline, create_graph_pipeline, Neo4jConnection
+from wxpath.core.models import Task
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class GraphIntegration:
                configuration: Optional[Dict[str, Any]] = None) -> str:
         """Enable graph integration and start a new crawl session."""
         if not self.pipeline:
-            config = get_global_config()
+            config = get_global_graph_config()
             if not config.pipeline.enabled:
                 logger.info("Graph pipeline is disabled in configuration")
                 return ""

@@ -18,13 +18,13 @@ from neo4j import GraphDatabase, Driver, Session
 from neo4j.exceptions import Neo4jError
 from lxml import html
 
-from .graph_models import (
+from .models import (
     PageNode, ElementNode, CrawlSessionNode, CrawlResult,
     LinksToRelationship, ContainsRelationship, PartOfRelationship,
     GraphTransaction, CrawlStatistics,
     create_page_node, create_element_node, create_crawl_session_node
 )
-from .models import WxStr, Task
+from wxpath.core.models import WxStr, Task
 
 
 logger = logging.getLogger(__name__)

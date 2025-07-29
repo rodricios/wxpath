@@ -11,16 +11,16 @@ from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
 from lxml import html
 
-from wxpath.graph_models import (
+from wxpath.extensions.graph.models import (
     PageNode, ElementNode, CrawlSessionNode, CrawlResult,
     LinksToRelationship, ContainsRelationship, PartOfRelationship,
     create_page_node, create_element_node, create_crawl_session_node
 )
-from wxpath.neo4j_extension import Neo4jConnection, GraphPipeline
-from wxpath.graph_queries import GraphQueries, GraphAnalyzer
-from wxpath.graph_integration import GraphIntegration
-from wxpath.models import Task
-from wxpath.config import Neo4jConfig, PipelineConfig, WxPathConfig
+from wxpath.extensions.graph.pipeline import Neo4jConnection, GraphPipeline
+from wxpath.extensions.graph.queries import GraphQueries, GraphAnalyzer
+from wxpath.extensions.graph.integration import GraphIntegration
+from wxpath.core.models import Task
+from wxpath.extensions.graph.config import Neo4jConfig, PipelineConfig, GraphConfig
 
 
 class TestGraphModels:
