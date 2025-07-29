@@ -1,5 +1,7 @@
 import re
 import inspect
+import logging
+from typing import List, Tuple, Union, Optional, Iterator, Any, Callable, Set
 
 from collections import deque
 from lxml import etree, html
@@ -9,19 +11,104 @@ from wxpath.core import patches
 from wxpath.core.models import WxStr, Task
 from wxpath.core.http import fetch_html, parse_html, make_links_absolute
 
+# Configure logging for wxpath engine
+logger = logging.getLogger(__name__)
 
-def wrap_strings(results, url):
+# Memory management constants
+MAX_QUEUE_SIZE = 10000
+MAX_SEEN_URLS = 50000
+MAX_ITERATIONS = 100000
+
+# XPath validation constants
+MAX_XPATH_LENGTH = 5000
+MAX_XPATH_COMPLEXITY = 100  # Max number of operators/functions
+DISALLOWED_XPATH_FUNCTIONS = [
+    'document', 'doc', 'system-property', 'unparsed-entity-uri',
+    'generate-id', 'function-available', 'element-available'
+]
+
+
+def validate_xpath_expression(xpath_expr: str) -> None:
+    """Validate XPath expression for security and complexity.
+    
+    Args:
+        xpath_expr: The XPath expression to validate
+        
+    Raises:
+        ValueError: If the expression is invalid, too complex, or contains disallowed functions
+    """
+    if not xpath_expr or not isinstance(xpath_expr, str):
+        raise ValueError("XPath expression must be a non-empty string")
+    
+    if len(xpath_expr) > MAX_XPATH_LENGTH:
+        raise ValueError(f"XPath expression too long: {len(xpath_expr)} > {MAX_XPATH_LENGTH}")
+    
+    # Check for disallowed functions
+    xpath_lower = xpath_expr.lower()
+    for func in DISALLOWED_XPATH_FUNCTIONS:
+        if f"{func}(" in xpath_lower:
+            raise ValueError(f"Disallowed XPath function: {func}")
+    
+    # Count complexity indicators (rough estimate)
+    complexity_indicators = [
+        '/', '//', '[', ']', '(', ')', '@', ':', '|', '+', '-', '*', 
+        'and', 'or', 'not', 'contains', 'starts-with', 'text()', 'node()'
+    ]
+    
+    complexity_count = sum(xpath_expr.count(indicator) for indicator in complexity_indicators)
+    
+    if complexity_count > MAX_XPATH_COMPLEXITY:
+        raise ValueError(f"XPath expression too complex: {complexity_count} > {MAX_XPATH_COMPLEXITY}")
+    
+    # Check for potential infinite loops or very deep nesting
+    if xpath_expr.count('//') > 10:
+        raise ValueError("Too many '//' operators - potential performance issue")
+    
+    # Basic syntax validation - check for balanced brackets and parentheses
+    brackets = xpath_expr.count('[') - xpath_expr.count(']')
+    parens = xpath_expr.count('(') - xpath_expr.count(')')
+    
+    if brackets != 0:
+        raise ValueError("Unbalanced square brackets in XPath expression")
+    if parens != 0:
+        raise ValueError("Unbalanced parentheses in XPath expression")
+
+
+def wrap_strings(results: List[Union[str, Any]], url: str) -> List[Union[WxStr, Any]]:
+    """Wrap string results with WxStr to maintain base URL context."""
     return [WxStr(s, base_url=url) if isinstance(s, str) else s for s in results]
 
 
-def extract_arg_from_url_xpath_op(url_subsegment):
+def extract_arg_from_url_xpath_op(url_subsegment: str) -> str:
+    """Extract the argument from a url() XPath operation.
+    
+    Args:
+        url_subsegment: The url() segment to extract from
+        
+    Returns:
+        The extracted URL or attribute argument
+        
+    Raises:
+        ValueError: If the segment is not a valid url() operation
+    """
     match = re.search(r"url\((.+)\)", url_subsegment)
     if not match:
         raise ValueError(f"Invalid url() segment: {url_subsegment}")
     return match.group(1).strip("'\"")  # Remove surrounding quotes if any
 
 
-def parse_wxpath_expr(path_expr):
+def parse_wxpath_expr(path_expr: str) -> List[Tuple[str, str]]:
+    """Parse a wxpath expression into operation segments.
+    
+    Args:
+        path_expr: The wxpath expression to parse
+        
+    Returns:
+        List of tuples containing (operation_type, value) pairs
+        
+    Raises:
+        ValueError: For invalid or unsupported expressions
+    """
     segments = []
     i = 0
     n = len(path_expr)
@@ -71,11 +158,11 @@ def parse_wxpath_expr(path_expr):
     #### RAISE ERRORS FROM INVALID SEGMENTS ####
     
     # Raises if multiple ///url() are present
-    if len([op for op, val in parsed if op == 'url_inf']) > 1:
+    if len([op for op, _ in parsed if op == 'url_inf']) > 1:
         raise ValueError("Only one ///url() is allowed")
     
     # Raises if multiple url() are present
-    if len([op for op, val in parsed if op == 'url']) > 1:
+    if len([op for op, _ in parsed if op == 'url']) > 1:
         raise ValueError("Only one url() is allowed")
     
     # Raises when expr starts with //url(@<attr>)
@@ -85,30 +172,96 @@ def parse_wxpath_expr(path_expr):
     return parsed
     
 
-def apply_to_crawler(html_handler):
+def apply_to_crawler(html_handler: Callable[[html.HtmlElement], html.HtmlElement]) -> Callable[[html.HtmlElement], html.HtmlElement]:
+    """Register an HTML handler to be applied to all fetched pages.
+    
+    Args:
+        html_handler: Function that takes and returns an HTML element
+        
+    Returns:
+        The same handler function (for decorator pattern)
+    """
     signature = inspect.signature(evaluate_wxpath_bfs_iter)
-    html_handlers = signature.parameters.get("html_handlers").default # type: list
+    html_handlers: List[Callable] = signature.parameters.get("html_handlers").default
     html_handlers.append(html_handler)
     return html_handler
 
 
-def wxpath(elem, path_expr, items=None, depth=1, debug_indent=0):
-    print(f"{debug_indent*'  '}wxpath called with path_expr: {path_expr}")
+def wxpath(elem: Optional[html.HtmlElement], 
+           path_expr: str, 
+           items: Optional[List[Any]] = None, 
+           depth: int = 1, 
+           debug_indent: int = 0) -> List[Union[html.HtmlElement, WxStr, str]]:
+    """Execute wxpath expression on element with specified depth.
+    
+    Args:
+        elem: HTML element to start from (None for URL-based expressions)
+        path_expr: XPath expression with wxpath extensions
+        items: Optional list of items (deprecated)
+        depth: Maximum crawling depth (default: 1)
+        debug_indent: Debug indentation level (deprecated)
+        
+    Returns:
+        List of matching elements or text content
+        
+    Raises:
+        ValueError: For invalid expressions or unsupported operations
+    """
+    logger.debug("wxpath called with path_expr: %s", path_expr)
+    
+    # Validate the path expression for security and complexity
+    validate_xpath_expression(path_expr)
     
     segments = parse_wxpath_expr(path_expr)
-    return list(evaluate_wxpath_bfs_iter(elem, segments, items, depth=depth, debug_indent=debug_indent))
+    return list(evaluate_wxpath_bfs_iter(elem, segments, items=items, max_depth=depth, debug_indent=debug_indent))
 
 
-def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_depth=0, html_handlers=[], _graph_integration=None):
+def evaluate_wxpath_bfs_iter(
+    elem: Optional[html.HtmlElement], 
+    segments: List[Tuple[str, str]], 
+    items: Optional[List[Any]] = None,
+    max_depth: int = 1, 
+    seen_urls: Optional[Set[str]] = None, 
+    curr_depth: int = 0, 
+    html_handlers: Optional[List[Callable]] = None, 
+    _graph_integration: Optional[Any] = None,
+    debug_indent: int = 0,
+    max_queue_size: int = MAX_QUEUE_SIZE,
+    max_seen_urls: int = MAX_SEEN_URLS,
+    max_iterations: int = MAX_ITERATIONS
+) -> Iterator[Union[html.HtmlElement, WxStr, str]]:
     """
     BFS version of evaluate_wxpath.
     Processes all nodes at the current depth before moving deeper.
+    
+    Args:
+        elem: Starting HTML element (None for URL-based expressions)
+        segments: Parsed wxpath expression segments
+        items: Optional list of items (deprecated)
+        max_depth: Maximum crawling depth
+        seen_urls: Set of already visited URLs
+        curr_depth: Current depth in crawling
+        html_handlers: Optional list of HTML processing functions
+        _graph_integration: Optional graph integration object
+        debug_indent: Debug indentation level (deprecated)
+        max_queue_size: Maximum number of tasks in queue (memory management)
+        max_seen_urls: Maximum number of URLs to remember (memory management)
+        max_iterations: Maximum total iterations to prevent infinite loops
+        
+    Yields:
+        HTML elements, WxStr objects, or strings from the crawl
+        
+    Raises:
+        MemoryError: When memory limits are exceeded
+        RuntimeError: When iteration limits are exceeded
     """
 
-    assert len([op for op, val in segments if op == 'url_inf']) <= 1, "Only one ///url() is allowed"
+    assert len([op for op, _ in segments if op == 'url_inf']) <= 1, "Only one ///url() is allowed"
     
     if seen_urls is None:
         seen_urls = set()
+    if html_handlers is None:
+        html_handlers = []
     queue = deque()
     
     # Initialize the queue: start with the initial element (or URL segment)
@@ -118,15 +271,32 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
     queue.append(initial_task)
 
     iterations = 0
-    while queue:
+    try:
+        while queue:
+            # Memory and iteration limits
+            if iterations >= max_iterations:
+                logger.error("Maximum iterations exceeded: %d", max_iterations)
+                raise RuntimeError(f"Maximum iteration limit ({max_iterations}) exceeded")
+                
+            if len(queue) > max_queue_size:
+                logger.error("Queue size exceeded: %d > %d", len(queue), max_queue_size)
+                raise MemoryError(f"Queue size limit ({max_queue_size}) exceeded")
+                
+            if len(seen_urls) > max_seen_urls:
+                logger.warning("Seen URLs limit exceeded: %d > %d. Clearing oldest entries.", 
+                             len(seen_urls), max_seen_urls)
+                # Keep only the most recent URLs by converting to list, slicing, and back to set
+                seen_urls_list = list(seen_urls)
+                seen_urls = set(seen_urls_list[-max_seen_urls//2:])  # Keep half
 
-        iterations += 1
-        if iterations % 100 == 0:
-            print(f"[BFS] Iteration {iterations}: Queue size: {len(queue)}, Current depth: {curr_depth}, Seen URLs: {len(seen_urls)}")
-        
-        task = queue.popleft()
-        curr_elem, curr_segments, curr_depth, backlink = task
-        session_id = task.session_id
+            iterations += 1
+            if iterations % 100 == 0:
+                logger.info("BFS Iteration %d: Queue size: %d, Current depth: %d, Seen URLs: %d", 
+                           iterations, len(queue), curr_depth, len(seen_urls))
+            
+            task = queue.popleft()
+            curr_elem, curr_segments, curr_depth, backlink = task
+            session_id = task.session_id
         parent_page_url = task.parent_page_url or getattr(curr_elem, 'base_url', None)
         
         if not curr_segments:
@@ -135,7 +305,9 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
             continue
 
         op, value = curr_segments[0]
-        print(f"{curr_depth*'  '}[BFS] op: {op}, value: {value} depth={curr_depth} elem.base_url={getattr(curr_elem, 'base_url', None) if curr_elem else None}")
+        elem_base_url = getattr(curr_elem, 'base_url', None) if curr_elem else None
+        logger.debug("BFS op: %s, value: %s, depth: %d, elem.base_url: %s", 
+                    op, value, curr_depth, elem_base_url)
         
         if op == 'url':
             # NOTE: Should I allow curr_elem to be not None? 
@@ -146,7 +318,7 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
             if value.startswith('@'):
                 raise ValueError("Cannot use '@' in url() segment at the start of path_expr.")
             if value in seen_urls:
-                print(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {value}")
+                logger.debug("BFS[%s] Skipping already seen URL: %s", op, value)
                 continue
 
             try:
@@ -157,7 +329,8 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                     for handler in html_handlers:
                         new_elem = handler(new_elem)
                 seen_urls.add(value)
-                print(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {value} curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]}")
+                logger.debug("BFS[%s] Fetched URL: %s at depth: %d, remaining segments: %s", 
+                           op, value, curr_depth, curr_segments[1:])
                 
                 # Graph event: page fetched
                 if _graph_integration and _graph_integration.is_enabled():
@@ -170,14 +343,15 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                     )
                 
                 if curr_depth <= max_depth:
-                    print(f"{curr_depth*'  '}[BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]} url: {value}")
+                    logger.debug("BFS[%s] Queueing element for xpath evaluation at depth: %d, url: %s", 
+                               op, curr_depth, value)
                     next_task = Task(new_elem, curr_segments[1:], curr_depth+1, backlink=value, 
                                    parent_page_url=value, session_id=session_id)
                     queue.append(next_task)
                 else:
                     yield new_elem
             except Exception as e:
-                print(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {value}: {e}")
+                logger.warning("BFS[%s] Error fetching URL %s: %s", op, value, e)
                 continue
 
         elif op == 'url_from_attr':
@@ -193,7 +367,7 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
 
             for url in urls:
                 if url in seen_urls:
-                    print(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
+                    logger.debug("BFS[%s] Skipping already seen URL: %s", op, url)
                     continue
                 try:
                     # Graph event: URL discovered
@@ -218,7 +392,7 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                     #     yield elem
                     # seen_urls.add(url)
                 except Exception as e:
-                    print(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
+                    logger.warning("BFS[%s] Error processing URL %s: %s", op, url, e)
                     continue
 
         elif op == 'url_inf':
@@ -231,14 +405,15 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
             base_url = getattr(curr_elem, 'base_url', None)
             urls = make_links_absolute(elems, base_url)
             
-            print(f"{curr_depth*'  '}[BFS][{op}] Found {len(urls)} URLs from {getattr(curr_elem, 'base_url', None) if curr_elem else None} at depth {curr_depth}")
+            source_url = getattr(curr_elem, 'base_url', None) if curr_elem else None
+            logger.debug("BFS[%s] Found %d URLs from %s at depth %d", op, len(urls), source_url, curr_depth)
             for url in urls:
                 if url in seen_urls:
-                    print(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
+                    logger.debug("BFS[%s] Skipping already seen URL: %s", op, url)
                     continue
                 try:
                     if curr_depth > max_depth:
-                        print(f"{curr_depth*'  '}[BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
+                        logger.debug("BFS[%s] Reached max depth for URL: %s, not queuing further", op, url)
                         # seen_urls.add(url)
                         # print(f"{curr_depth*'  '}[BFS][{op}] Yielding URL: {url}")
                         # yield html.fromstring(fetch_html(url), base_url=url)
@@ -252,7 +427,7 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                         )
                     
                     _segments = [('url_inf_2', (url, value))] + curr_segments[1:]
-                    print(f"{curr_depth*'  '}[BFS][{op}] Queueing url_inf_2 for URL: {url} with segments: {_segments}")
+                    logger.debug("BFS[%s] Queueing url_inf_2 for URL: %s with segments: %s", op, url, _segments)
                     # Not incrementing since we do not actually fetch the URL here
                     next_task = Task(None, _segments, curr_depth, backlink=curr_elem.base_url,
                                    parent_page_url=parent_page_url, session_id=session_id, 
@@ -260,7 +435,7 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                     queue.append(next_task)
 
                 except Exception as e:
-                    print(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
+                    logger.warning("BFS[%s] Error processing URL %s: %s", op, url, e)
                     continue
 
         elif op == 'url_inf_2':
@@ -268,7 +443,7 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
             if curr_elem is not None:
                 raise ValueError("Cannot use 'url()' at the start of path_expr with an element provided.")
             if url in seen_urls:
-                print(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
+                logger.debug("BFS[%s] Skipping already seen URL: %s", op, url)
                 continue
             try:
                 html_content = fetch_html(url)
@@ -278,7 +453,7 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                     for handler in html_handlers:
                         new_elem = handler(new_elem)
                 seen_urls.add(url)
-                print(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {url}")
+                logger.debug("BFS[%s] Fetched URL: %s", op, url)
                 
                 # Graph event: page fetched
                 if _graph_integration and _graph_integration.is_enabled():
@@ -298,13 +473,15 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                 
                 if curr_depth <= max_depth:
                     # Queue the new element for further xpath evaluation
-                    print(f"{curr_depth*'  '}[BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]} url: {url}")
+                    logger.debug("BFS[%s] Queueing element for xpath evaluation at depth: %d, url: %s", 
+                               op, curr_depth, url)
                     next_task1 = Task(new_elem, curr_segments[1:], curr_depth+1, backlink=new_elem.base_url,
                                     parent_page_url=url, session_id=session_id)
                     queue.append(next_task1)
                     # For url_inf, also re-enqueue for further infinite expansion
                     _segments = [('url_inf', prev_op_value)] + curr_segments[1:]
-                    print(f"{curr_depth*'  '}[BFS][{op}] Queueing url_inf for URL: {url} with segments: {_segments}, new_elem: {new_elem}")
+                    logger.debug("BFS[%s] Queueing url_inf for URL: %s with segments: %s", 
+                               op, url, _segments)
                     next_task2 = Task(new_elem, _segments, curr_depth+1, backlink=new_elem.base_url,
                                     parent_page_url=url, session_id=session_id)
                     queue.append(next_task2)
@@ -314,7 +491,7 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                     # yield new_elem
                     pass
             except Exception as e:
-                print(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
+                logger.warning("BFS[%s] Error fetching URL %s: %s", op, url, e)
                 continue
 
         elif op == 'xpath':
@@ -348,7 +525,7 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                     urls = make_links_absolute(elems, base_url)
                     for url in urls:
                         if url in seen_urls:
-                            print(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
+                            logger.debug("BFS[%s] Skipping already seen URL: %s", op, url)
                             continue
                         try:
                             # Graph event: URL discovered
@@ -370,11 +547,19 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
                                 seen_urls.add(url)
                                 yield html.fromstring(fetch_html(url), base_url=url)
                         except Exception as e:
-                            print(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
+                            logger.warning("BFS[%s] Error processing URL %s: %s", op, url, e)
                             continue
                 else:
                     raise ValueError(f"Unexpected segment pattern after XPath: {next_op}")
         else:
             raise ValueError(f"Unknown operation: {op}")
+    
+    finally:
+        # Cleanup: Clear any remaining references to help with garbage collection
+        if 'queue' in locals():
+            queue.clear()
+        if 'seen_urls' in locals():
+            seen_urls.clear()
+        logger.debug("BFS iterator cleanup completed")
 
     return

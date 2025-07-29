@@ -11,8 +11,7 @@ requires-python = ">=3.8"
 authors = [
     { name = "Rodrigo Palacios", email = "rodrigopala91@gmail.com" }
 ]
-license = "MIT"
-license-files = ["LICENSE"]
+license = {text = "MIT"}
 dependencies = [
     "requests>=2.0",
     "lxml>=4.0"
