@@ -18,7 +18,7 @@ build
 site-packages
 
 # ignore virtualenv's dist-packages
-dist-packages   
+dist-packages
 
 # ignore virtualenv's pycache
 __pycache__
@@ -48,3 +48,38 @@ pyvenv.cfg
 
 # ignore environment files (keep .env.example)
 .env
+
+# Development tools
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Distribution / packaging
+dist/
+*.egg-info/
+
+# PyCharts
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+
+# Mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
