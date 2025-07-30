@@ -103,13 +103,24 @@ MIT
     1. More precise webpage processing
     2. Finetuned crawling - we can direct an infinite crawl via xpath filtering and xpath operations, 
        however, more complex logic can be implemented to prune the search tree.
+6. Flesh out Requesting engine
+    * Support for custom headers, cookies, etc.
+    * Support for proxies
+    * Support for request throttling
+    * Support for request retries
 
 
 ## Roadmap (rough and subject to drastic change)
 
 1. Tighten up core.py
     * ~~Remove or hide (behind a flag) debug print statements~~
-    * Refactor parsing code into separate submodule
+    * ~~Refactor parsing code into separate submodule~~
     * Standardize operations ("op" in "op, val" pairs) related to xpath'ing and crawling instructions
+    * Introduce xpath 2, 3.1 via elementpath library
 2. Create sample projects that utilize its crawling features
     * Neo4J addon and dashboards displaying wxpath's capabilities of crawling, extracting, and uploading (via the pipelining decorator) data.
+3. Improve Requesting engine:
+    * Support for modifications to requests
+    * Multiprocessing/parallelization of requests
+4. Standardize a knowledge-graph product
+    * RAG (Retrieval-Augmented Generation) capabilities

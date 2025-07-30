@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 
 from wxpath import patches
 from wxpath.models import WxStr, Task
+from wxpath.hooks import get_hooks, FetchContext
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +54,16 @@ def _load_page_as_element(
     and runs any HTML‐postprocessing handlers.
     """
     content = fetch_html(url)
-    elem = html.fromstring(content, base_url=url)
+    
+    for hook in get_hooks():
+        _content = getattr(hook, 'post_fetch', lambda _, content: content)\
+                    (_ctx(url, backlink, depth, [], seen_urls), content)
+                    
+        if not _content:
+            return None
+        content = _content
+    
+    elem = html.fromstring(content, base_url=url)  # type: html.HtmlElement
     elem.set("backlink", backlink)
     elem.set("depth", str(depth))
     seen_urls.add(url)
@@ -75,7 +85,7 @@ def _extract_arg_from_url_xpath_op(url_subsegment):
 
 def _split_top_level(s: str, sep: str = ',') -> list[str]:
     """
-    Split *s* on *sep* but only at the top‑level (i.e. not inside (), [] or {}).
+    Split *s* on *sep* but only at the top-level (i.e. not inside (), [] or {}).
 
     This is needed so we can correctly split key/value pairs inside an object
     segment even when the value itself contains commas or braces.
@@ -122,7 +132,7 @@ def parse_wxpath_expr(path_expr):
     i = 0
     n = len(path_expr)
     while i < n:
-        # Detect object‑construction segments:  '/{ ... }'  or  '{ ... }'
+        # Detect object-construction segments:  '/{ ... }'  or  '{ ... }'
         if path_expr[i] == '{' or (path_expr[i] == '/' and i + 1 < n and path_expr[i + 1] == '{'):
             seg_start = i
             # Skip the optional leading '/'
@@ -213,13 +223,6 @@ def parse_wxpath_expr(path_expr):
     return parsed
 
 
-def apply_to_crawler(html_handler):
-    signature = inspect.signature(evaluate_wxpath_bfs_iter)
-    html_handlers = signature.parameters.get("html_handlers").default # type: list
-    html_handlers.append(html_handler)
-    return html_handler
-
-
 def _url_inf_filter_expr(url_op_and_arg):
     url_op_arg = _extract_arg_from_url_xpath_op(url_op_and_arg)
     if url_op_arg.startswith('@'):
@@ -232,36 +235,60 @@ def _count_ops_with_url(segments):
     return len([op for op, _ in segments if op.startswith('url')])
 
 
-def _handle_url(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers):
-    op, value = curr_segments[0]
+def _get_absolute_links_from_elem_and_xpath(elem, xpath):
+    base_url = getattr(elem, 'base_url', None)
+    return _make_links_absolute(elem.xpath(xpath), base_url)
+
+
+def _ctx(url: str, backlink: str, depth: int, segments: list, seen_urls: set) -> FetchContext:
+    return FetchContext(url, backlink, depth, seen_urls)
+
+
+def _handle_url(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
+    """
+    Handles the `^url()` segment of a wxpath expression
+    """
+    op, url = curr_segments[0]
     # NOTE: Should I allow curr_elem to be not None? 
     #   Pros: when adding backling attrib to new_elem, it's easy to add it from curr_elem.base_url. 
     #   Cons: curr_elem.base_url might not be set. Also, we keep an extra reference to curr_elem for the next level - could potentially cause a memory leak.
     if curr_elem is not None:
         raise ValueError("Cannot use 'url()' at the start of path_expr with an element provided.")
-    if value.startswith('@'):
+    if url.startswith('@'):
         raise ValueError("Cannot use '@' in url() segment at the start of path_expr.")
-    if value in seen_urls:
-        log.debug(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {value}")
+    if url in seen_urls:
+        log.debug(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
         return
 
     try:
-        new_elem = _load_page_as_element(value, backlink, curr_depth, seen_urls)
-        if html_handlers:
-            for handler in html_handlers:
-                new_elem = handler(new_elem)
-        log.debug(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {value} curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]}")
+        new_elem = _load_page_as_element(url, backlink, curr_depth, seen_urls)
+        
+        if new_elem is None:
+            return
+        
+        for hook in get_hooks():
+            _elem = getattr(hook, 'post_parse', lambda _, elem: elem)\
+                        (_ctx(url, backlink, curr_depth, curr_segments, seen_urls), new_elem)
+            if _elem is None:
+                return
+            new_elem = _elem
+
+        log.debug(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {url} curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]}")
         
         if curr_depth <= max_depth:
-            log.debug(f"{curr_depth*'  '}[BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]} url: {value}")
-            queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, value))
+            log.debug(f"{curr_depth*'  '}[BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]} url: {url}")
+            queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, url))
         else:
+            # NOTE: Should we pass instead of yield here?
             yield new_elem
     except requests.exceptions.RequestException as e:
-        log.error(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {value}: {e}")
+        log.error(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
 
 
-def _handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers):
+def _handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
+    """
+    Handles the `[/|//]url(@<attr>)` (e.g., `...//url(@href)`) segment of a wxpath expression
+    """
     op, value = curr_segments[0]
     if curr_elem is None:
         raise ValueError("Element must be provided when op is 'url_from_attr'.")
@@ -271,9 +298,8 @@ def _handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, queue
         raise ValueError("Only '@*' is supported in url() segments not at the start of path_expr.")
     
     _path_exp = '.' + value.split('url')[0] + url_op_arg
-    elems = curr_elem.xpath(_path_exp)
-    base_url = getattr(curr_elem, 'base_url', None)
-    urls = _make_links_absolute(elems, base_url)
+
+    urls = _get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
 
     for url in urls:
         if url in seen_urls:
@@ -288,14 +314,19 @@ def _handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, queue
         except requests.exceptions.RequestException as e:
             log.error(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
             continue
-    
-def _haldle_url_inf__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers):
+
+
+def _haldle_url_inf__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
+    """
+    Handles the ///url() segment of a wxpath expression. This operation is also 
+    generated internally by the parser when a `///<xpath>/[/]url()` segment is
+    encountered by the parser.
+    """
     op, value = curr_segments[0]
 
     _path_exp = _url_inf_filter_expr(value)
-    elems = curr_elem.xpath(_path_exp)
-    base_url = getattr(curr_elem, 'base_url', None)
-    urls = _make_links_absolute(elems, base_url)
+
+    urls = _get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
     
     log.debug(f"{curr_depth*'  '}[BFS][{op}] Found {len(urls)} URLs from {getattr(curr_elem, 'base_url', None) if curr_elem is not None else None} at depth {curr_depth}")
     for url in urls:
@@ -316,7 +347,11 @@ def _haldle_url_inf__no_return(curr_elem, curr_segments, curr_depth, queue, back
             continue
 
 
-def _handle_url_inf_2__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers):
+def _handle_url_inf_2__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
+    """
+    This is an operation that is generated internally by the parser. There is
+    no explicit wxpath expression that generates this operation.
+    """
     op, value = curr_segments[0]
     url, prev_op_value = value
     if curr_elem is not None:
@@ -326,9 +361,16 @@ def _handle_url_inf_2__no_return(curr_elem, curr_segments, curr_depth, queue, ba
         return
     try:
         new_elem = _load_page_as_element(url, backlink, curr_depth, seen_urls)
-        if html_handlers:
-            for handler in html_handlers:
-                new_elem = handler(new_elem)
+        
+        if new_elem is None:
+            return
+        
+        for hook in get_hooks():
+            _elem = getattr(hook, 'post_parse', lambda _, elem: elem)\
+                        (_ctx(url, backlink, curr_depth, curr_segments, seen_urls), new_elem)
+            if _elem is None:
+                return
+            new_elem = _elem
 
         log.debug(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {url}")
         
@@ -347,8 +389,11 @@ def _handle_url_inf_2__no_return(curr_elem, curr_segments, curr_depth, queue, ba
         log.error(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
 
 
-def _handle_xpath(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers):
-    op, value = curr_segments[0]
+def _handle_xpath(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
+    """
+    Handles the [/|//]<xpath> segment of a wxpath expression. This is a plain XPath expression.
+    """
+    _, value = curr_segments[0]
     if curr_elem is None:
         raise ValueError("Element must be provided when path_expr does not start with 'url()'.")
     base_url = getattr(curr_elem, 'base_url', None)
@@ -362,14 +407,14 @@ def _handle_xpath(curr_elem, curr_segments, curr_depth, queue, backlink, max_dep
 
 
 def _handle_object(curr_elem, curr_segments, curr_depth, queue, backlink,
-                   max_depth, seen_urls, html_handlers):
+                   max_depth, seen_urls):
     """
-    Builds a JSON‑like dict from an object segment.
+    Builds a JSON-like dict from an object segment.
 
     Each value expression is evaluated using the full wxpath DSL so it can
     contain anything from a plain XPath to another `url()` hop.
     """
-    op, value = curr_segments[0]
+    _, value = curr_segments[0]
 
     if curr_elem is None:
         raise ValueError("Object segment requires an element context before it.")
@@ -378,7 +423,7 @@ def _handle_object(curr_elem, curr_segments, curr_depth, queue, backlink,
     result = {}
 
     for key, expr in obj_map.items():
-        # Detect optional [n] scalar‑selection suffix.
+        # Detect optional [n] scalar-selection suffix.
         idx = None
         m = re.match(r'^(.*)\[(\d+)\]\s*$', expr)
         if m:
@@ -387,7 +432,7 @@ def _handle_object(curr_elem, curr_segments, curr_depth, queue, backlink,
         else:
             expr_inner = expr
 
-        # Parse the sub‑expression and decide whether it needs a root element.
+        # Parse the sub-expression and decide whether it needs a root element.
         sub_segments = parse_wxpath_expr(expr_inner)
         root_elem = None if sub_segments[0][0] != 'xpath' else curr_elem
 
@@ -396,7 +441,6 @@ def _handle_object(curr_elem, curr_segments, curr_depth, queue, backlink,
                 root_elem,
                 sub_segments,
                 max_depth=max_depth,
-                html_handlers=html_handlers,
             )
         )
 
@@ -415,7 +459,7 @@ def _handle_object(curr_elem, curr_segments, curr_depth, queue, backlink,
     yield result
 
 
-def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_depth=0, html_handlers=[]):
+def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_depth=0):
     """
     BFS version of evaluate_wxpath.
     Processes all nodes at the current depth before moving deeper.
@@ -448,18 +492,18 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
         log.debug(f"{curr_depth*'  '}[BFS] op: {op}, value: {value} depth={curr_depth} elem.base_url={getattr(curr_elem, 'base_url', None) if curr_elem is not None else None}")
         
         if op == 'url':
-            yield from _handle_url(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers)
+            yield from _handle_url(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls)
         elif op == 'url_from_attr':
-            _handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers)
+            _handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls)
         elif op == 'url_inf':
-            _haldle_url_inf__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers)
+            _haldle_url_inf__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls)
         elif op == 'url_inf_2':
-            _handle_url_inf_2__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers)
+            _handle_url_inf_2__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls)
         elif op == 'xpath':
-            yield from _handle_xpath(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls, html_handlers)
+            yield from _handle_xpath(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls)
         elif op == 'object':
             yield from _handle_object(curr_elem, curr_segments, curr_depth, queue,
-                                      backlink, max_depth, seen_urls, html_handlers)
+                                      backlink, max_depth, seen_urls)
         else:
             raise ValueError(f"Unknown operation: {op}")
 
@@ -467,7 +511,7 @@ def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_d
 
 
 def wxpath_iter(path_expr, max_depth=1):
-    return evaluate_wxpath_bfs_iter(None, parse_wxpath_expr(path_expr), max_depth=max_depth)
+    return filter(None, evaluate_wxpath_bfs_iter(None, parse_wxpath_expr(path_expr), max_depth=max_depth))
 
 
 def wxpath(path_expr, max_depth=1):
