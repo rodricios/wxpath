@@ -139,7 +139,7 @@ async def async_load_page_as_element(
         elem.set("depth", str(depth))
         seen_urls.add(url)
         
-        log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Fetched URL: {url}")
+        log.debug(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {url}")
         return elem
         
     except Exception as e:
@@ -159,7 +159,7 @@ async def async_handle_url(curr_elem, curr_segments, curr_depth, queue, backlink
     if url.startswith('@'):
         raise ValueError("Cannot use '@' in url() segment at the start of path_expr.")
     if url in seen_urls:
-        log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Skipping already seen URL: {url}")
+        log.debug(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
         return
 
     try:
@@ -177,16 +177,16 @@ async def async_handle_url(curr_elem, curr_segments, curr_depth, queue, backlink
                 return
             new_elem = _elem
 
-        log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Fetched URL: {url} curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]}")
+        log.debug(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {url} curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]}")
         
         if curr_depth <= max_depth:
-            log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]} url: {url}")
+            log.debug(f"{curr_depth*'  '}[BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]} url: {url}")
             queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, url))
         else:
             yield new_elem
             
     except Exception as e:
-        log.error(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Error fetching URL {url}: {e}")
+        log.error(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
 
 
 def async_handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
@@ -210,16 +210,16 @@ def async_handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, 
 
     for url in urls:
         if url in seen_urls:
-            log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Skipping already seen URL: {url}")
+            log.debug(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
             continue
         try:
             if curr_depth <= max_depth:
                 # Queue URL for batch processing
                 queue.append(Task(None, [('url', url)] + curr_segments[1:], curr_depth, curr_elem.base_url))
             else:
-                log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
+                log.debug(f"{curr_depth*'  '}[BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
         except Exception as e:
-            log.error(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Error processing URL {url}: {e}")
+            log.error(f"{curr_depth*'  '}[BFS][{op}] Error processing URL {url}: {e}")
             continue
 
 
@@ -232,21 +232,21 @@ def async_handle_url_inf__no_return(curr_elem, curr_segments, curr_depth, queue,
     _path_exp = _url_inf_filter_expr(value)
     urls = _get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
     
-    log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Found {len(urls)} URLs from {getattr(curr_elem, 'base_url', None) if curr_elem is not None else None} at depth {curr_depth}")
+    log.debug(f"{curr_depth*'  '}[BFS][{op}] Found {len(urls)} URLs from {getattr(curr_elem, 'base_url', None) if curr_elem is not None else None} at depth {curr_depth}")
     
     for url in urls:
         if url in seen_urls:
-            log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Skipping already seen URL: {url}")
+            log.debug(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
             continue
         try:
             if curr_depth > max_depth:
-                log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
+                log.debug(f"{curr_depth*'  '}[BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
                 continue
             _segments = [('url_inf_2', (url, value))] + curr_segments[1:]
-            log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Queueing url_inf_2 for URL: {url} with segments: {_segments}")
+            log.debug(f"{curr_depth*'  '}[BFS][{op}] Queueing url_inf_2 for URL: {url} with segments: {_segments}")
             queue.append(Task(None, _segments, curr_depth, curr_elem.base_url))
         except Exception as e:
-            log.error(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Error processing URL {url}: {e}")
+            log.error(f"{curr_depth*'  '}[BFS][{op}] Error processing URL {url}: {e}")
             continue
 
 
@@ -261,7 +261,7 @@ async def async_handle_url_inf_2__no_return(curr_elem, curr_segments, curr_depth
     if curr_elem is not None:
         raise ValueError("Cannot use 'url()' at the start of path_expr with an element provided.")
     if url in seen_urls:
-        log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Skipping already seen URL: {url}")
+        log.debug(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
         return
 
     try:
@@ -279,22 +279,22 @@ async def async_handle_url_inf_2__no_return(curr_elem, curr_segments, curr_depth
                 return
             new_elem = _elem
 
-        log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Fetched URL: {url}")
+        log.debug(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {url}")
         
         if curr_depth <= max_depth:
             # Queue the new element for further xpath evaluation
-            log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]} url: {url}")
+            log.debug(f"{curr_depth*'  '}[BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]} url: {url}")
             queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, new_elem.base_url))
             
             # For url_inf, also re-enqueue for further infinite expansion
             _segments = [('url_inf', prev_op_value)] + curr_segments[1:]
-            log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Queueing url_inf for URL: {url} with segments: {_segments}, new_elem: {new_elem}")
+            log.debug(f"{curr_depth*'  '}[BFS][{op}] Queueing url_inf for URL: {url} with segments: {_segments}, new_elem: {new_elem}")
             queue.append(Task(new_elem, _segments, curr_depth+1, new_elem.base_url))
         else:
-            log.debug(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
+            log.debug(f"{curr_depth*'  '}[BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
             
     except Exception as e:
-        log.error(f"{curr_depth*'  '}[ASYNC-BFS][{op}] Error fetching URL {url}: {e}")
+        log.error(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
 
 
 def async_handle_xpath(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
@@ -405,7 +405,7 @@ async def async_evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=
     while queue:
         iterations += 1
         if iterations % 100 == 0:
-            log.debug(f"[ASYNC-BFS] Iteration {iterations}: Queue size: {len(queue)}, Current depth: {curr_depth}, Seen URLs: {len(seen_urls)}")
+            log.debug(f"[BFS] Iteration {iterations}: Queue size: {len(queue)}, Current depth: {curr_depth}, Seen URLs: {len(seen_urls)}")
         
         # Collect tasks that need URL fetching at the current depth
         url_fetch_tasks = []
@@ -435,7 +435,7 @@ async def async_evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=
             curr_elem, curr_segments, task_depth, backlink = task
             op, value = curr_segments[0]
             
-            log.debug(f"{task_depth*'  '}[ASYNC-BFS] op: {op}, value: {value} depth={task_depth} elem.base_url={getattr(curr_elem, 'base_url', None) if curr_elem is not None else None}")
+            log.debug(f"{task_depth*'  '}[BFS] op: {op}, value: {value} depth={task_depth} elem.base_url={getattr(curr_elem, 'base_url', None) if curr_elem is not None else None}")
             
             if op == 'url_from_attr':
                 async_handle_url_from_attr__no_return(curr_elem, curr_segments, task_depth, queue, backlink, max_depth, seen_urls)
@@ -474,13 +474,13 @@ async def async_evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=
             
             # Batch fetch all URLs
             if urls_to_fetch:
-                log.info(f"[ASYNC-BFS] Batch fetching {len(urls_to_fetch)} URLs at depth {curr_depth}")
+                log.debug(f"[BFS] Batch fetching {len(urls_to_fetch)} URLs at depth {curr_depth}")
                 url_contents = await async_fetch_html_batch(urls_to_fetch, crawler)
                 
                 # Process fetched results
                 for url, content in url_contents.items():
                     if content is None:
-                        log.debug(f"[ASYNC-BFS] Skipping failed URL: {url}")
+                        log.debug(f"[BFS] Skipping failed URL: {url}")
                         continue
                         
                     task = url_task_map[url]
@@ -520,11 +520,12 @@ async def async_evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=
                         if elem is None:
                             continue
                         
-                        log.debug(f"{task_depth*'  '}[ASYNC-BFS][{op}] Successfully processed URL: {url}")
+                        log.debug(f"{task_depth*'  '}[BFS][{op}] Successfully processed URL: {url}")
                         
                         # Handle different URL operations
                         if op == 'url':
                             if task_depth <= max_depth:
+                                log.debug(f"{task_depth*'  '}[BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {task_depth} curr_segments[1:]: {curr_segments[1:]} url: {url}")
                                 queue.append(Task(elem, curr_segments[1:], task_depth+1, url))
                             else:
                                 yield elem
@@ -533,13 +534,17 @@ async def async_evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=
                             url_val, prev_op_value = value
                             if task_depth <= max_depth:
                                 # Queue for further xpath evaluation
+                                log.debug(f"{task_depth*'  '}[BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {task_depth} curr_segments[1:]: {curr_segments[1:]} url: {url}")
                                 queue.append(Task(elem, curr_segments[1:], task_depth+1, elem.base_url))
                                 # Re-enqueue for infinite expansion
                                 _segments = [('url_inf', prev_op_value)] + curr_segments[1:]
+                                log.debug(f"{task_depth*'  '}[BFS][{op}] Queueing url_inf for URL: {url} with segments: {_segments}, new_elem: {elem}")
                                 queue.append(Task(elem, _segments, task_depth+1, elem.base_url))
+                            else:
+                                log.debug(f"{task_depth*'  '}[BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
                             
                     except Exception as e:
-                        log.error(f"[ASYNC-BFS] Error processing URL {url}: {e}")
+                        log.error(f"[BFS] Error processing URL {url}: {e}")
                         continue
 
     return
@@ -560,30 +565,22 @@ def evaluate_wxpath_bfs_iter_async_wrapper(elem, segments, max_depth=1, seen_url
     return asyncio.run(_run())
 
 
-# Main async entry point
-async def async_wxpath(elem_or_url, expr, max_depth=1, crawler=None):
+async def async_wxpath_iter(path_expr, max_depth=1, crawler=None):
     """
-    Async version of the main wxpath function.
-    
-    Args:
-        elem_or_url: Starting element or URL
-        expr: wxpath expression string
-        max_depth: Maximum traversal depth
-        crawler: Optional Crawler instance
-        
-    Returns:
-        Async generator yielding wxpath results
+    Async version of wxpath_iter. 
+    Returns an async generator that filters out None results from async evaluation.
     """
-    segments = parse_wxpath_expr(expr)
-    
-    # Determine starting element
-    if isinstance(elem_or_url, str):
-        # It's a URL
-        elem = None
-        segments = [('url', elem_or_url)] + segments
-    else:
-        # It's an element
-        elem = elem_or_url
-    
-    async for result in async_evaluate_wxpath_bfs_iter(elem, segments, max_depth=max_depth, crawler=crawler):
-        yield result
+    async for result in async_evaluate_wxpath_bfs_iter(None, parse_wxpath_expr(path_expr), max_depth=max_depth, crawler=crawler):
+        if result is not None:
+            yield result
+
+
+async def async_wxpath(path_expr, max_depth=1, crawler=None):
+    """
+    Async version of wxpath.
+    Returns a list of all results from async wxpath evaluation.
+    """
+    results = []
+    async for result in async_wxpath_iter(path_expr, max_depth=max_depth, crawler=crawler):
+        results.append(result)
+    return results
