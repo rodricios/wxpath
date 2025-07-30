@@ -45,8 +45,24 @@ for r in wxpath.core.evaluate_wxpath_bfs_iter(None, segments, max_depth=2):
     results.append(r)
 ```
 
+## Hooks
 
-### CLI
+**wxpath** supports a pluggable hook system that allows you to modify the crawling and extraction behavior. You can register hooks to preprocess URLs, post-process HTML, filter extracted values, and more.
+
+```python
+
+from wxpath import hooks
+
+@hooks.register
+class OnlyEnglish:
+    def post_parse(self, ctx, elem):
+        lang = elem.xpath('string(/html/@lang)').lower()[:2]
+        return elem if lang in ("en", "") else None
+
+```
+
+
+## CLI
 
 ```bash
 python -m wxpath.cli "url('https://en.wikipedia.org/wiki/Expression_language')\
