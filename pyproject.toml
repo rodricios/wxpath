@@ -20,6 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=7.0"]
+async = ["aiohttp>=3.8.0"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

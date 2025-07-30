@@ -28,7 +28,7 @@ from lxml import html
 # --------------------------------------------------------------------------- #
 # Dataclass describing the crawl context for a single URL
 # --------------------------------------------------------------------------- #
-@dataclass(slots=True)
+@dataclass
 class FetchContext:
     url: str
     backlink: Optional[str]
