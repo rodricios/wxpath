@@ -43,7 +43,7 @@ class Crawler:
                     body = await resp.read()
                     await cb(url, resp, body)
             except Exception as exc:
-                print(f"[ERR] {url} – {exc}")
+                print(f"[ERR] {url} - {exc}")
 
     async def _run(
         self,
