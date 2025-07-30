@@ -519,7 +519,7 @@ def wxpath(path_expr, max_depth=1):
     return list(wxpath_iter(path_expr, max_depth=max_depth))
 
 
-def _fetch_many(urls: Iterable[str], crawler: Crawler) -> Mapping[str, bytes]:
+def _fetch_many(urls: Iterable[str]) -> Mapping[str, bytes]:
     """
     Fetch *urls* concurrently; return a ``{url: body}`` dict.
 
@@ -542,6 +542,7 @@ def _fetch_many(urls: Iterable[str], crawler: Crawler) -> Mapping[str, bytes]:
         if getattr(resp, "status", 0) == 200 and body:
             out[u] = body
 
+    crawler = Crawler(concurrency=16, per_host=4, timeout=15)
     crawler.run(urls, _cb)       # blocking until all done
     return out
 
@@ -555,7 +556,7 @@ def evaluate_wxpath_bfs_iter_concurrent(
     *,
     max_depth: int = 1,
     seen_urls: set[str] | None = None,
-    crawler: Crawler = Crawler()
+    # crawler: Crawler = Crawler()
 ):
     """
     A drop-in, concurrent version of ``wxpath.core.evaluate_wxpath_bfs_iter``.
@@ -615,7 +616,7 @@ def evaluate_wxpath_bfs_iter_concurrent(
             elif op == "url_inf_2":
                 urls.append(val[0])
 
-        bodies = _fetch_many(urls, crawler)    # {url: bytes}
+        bodies = _fetch_many(urls)    # {url: bytes}
 
         # process each task in the layer
         for curr_elem, curr_segments, curr_depth, backlink in batch:
