@@ -1,17 +1,15 @@
 import re
-import inspect
 import logging
 import requests
 
 from collections import deque
 from lxml import etree, html
-from typing import Optional, Iterable, Mapping
+from typing import Optional
 from urllib.parse import urljoin
 
 from wxpath import patches
 from wxpath.models import WxStr, Task
 from wxpath.hooks import get_hooks, FetchContext
-from wxpath.crawler import Crawler
 
 log = logging.getLogger(__name__)
 
@@ -52,14 +50,14 @@ def _load_page_as_element(
 ) -> html.HtmlElement:
     """
     Fetches the URL, parses it into an lxml Element, sets backlink/depth,
-    and runs any HTML‐postprocessing handlers.
+    and runs any HTML-postprocessing handlers.
     """
     content = fetch_html(url)
     
     for hook in get_hooks():
         _content = getattr(hook, 'post_fetch', lambda _, content: content)\
                     (_ctx(url, backlink, depth, [], seen_urls), content)
-                    
+
         if not _content:
             return None
         content = _content
@@ -517,191 +515,3 @@ def wxpath_iter(path_expr, max_depth=1):
 
 def wxpath(path_expr, max_depth=1):
     return list(wxpath_iter(path_expr, max_depth=max_depth))
-
-
-def _fetch_many(urls: Iterable[str]) -> Mapping[str, bytes]:
-    """
-    Fetch *urls* concurrently; return a ``{url: body}`` dict.
-
-    Notes
-    -----
-    * `Crawler.run()` awaits the callback it receives, so the callback **must
-      be async**.  We therefore define an async wrapper that simply stores the
-      body in the shared dict.
-    * Failed/network‑error responses are ignored - the caller treats a missing
-      key as a fetch failure.
-    """
-    urls = list(dict.fromkeys(urls))     # stable‑order dedup
-
-    if not urls:
-        return {}
-
-    out: dict[str, bytes] = {}
-
-    async def _cb(u: str, resp, body: bytes):
-        if getattr(resp, "status", 0) == 200 and body:
-            out[u] = body
-
-    crawler = Crawler(concurrency=16, per_host=4, timeout=15)
-    crawler.run(urls, _cb)       # blocking until all done
-    return out
-
-
-# =============================================================================
-#  Concurrent breadth-first evaluator
-# =============================================================================
-def evaluate_wxpath_bfs_iter_concurrent(
-    elem,
-    segments,
-    *,
-    max_depth: int = 1,
-    seen_urls: set[str] | None = None,
-    # crawler: Crawler = Crawler()
-):
-    """
-    A drop-in, concurrent version of ``wxpath.core.evaluate_wxpath_bfs_iter``.
-
-    * Works breadth-first exactly like the original.
-    * At each depth *d*:
-        1. Gathers every URL it must fetch (``url`` / ``url_inf_2`` ops).
-        2. Fetches them together via ``Crawler``.
-        3. Processes the results, queuing the next depth.
-
-    Parameters
-    ----------
-    elem : lxml.html.HtmlElement | None
-        Starting element (``None`` if the expression begins with a ``url(...)``).
-    segments : list[tuple[str, str]]
-        Parsed wxpath expression (use ``wxpath.core.parse_wxpath_expr``).
-    max_depth : int, default 1
-        Same meaning as in the original evaluator.
-    seen_urls : set[str] | None
-        If supplied, the set will be updated to track visited URLs.
-
-    Yields
-    ------
-    lxml.html.HtmlElement | wxpath.models.WxStr | dict
-        Exactly the same yield types as the original evaluator.
-    """
-
-    assert max_depth >= _count_ops_with_url(segments) - 1, (
-        "max_depth+1 must be >= number of url* segments "
-        f"(max_depth={max_depth})"
-    )
-    assert len([op for op, _ in segments if op == "url_inf"]) <= 1, \
-        "Only one ///url() segment allowed"
-
-    if seen_urls is None:
-        seen_urls = set()
-
-    queue: deque[Task] = deque([Task(elem, segments, 0, None)])
-
-    while queue:
-        # depth of the first task
-        depth = queue[0].depth
-        batch: list[Task] = []
-
-        # pull the whole BFS layer into *batch*
-        while queue and queue[0].depth == depth:
-            batch.append(queue.popleft())
-
-        # gather URLs that need fetching this layer
-        urls: list[str] = []
-        for _elem, segs, _d, _b in batch:
-            if not segs:
-                continue
-            op, val = segs[0]
-            if op == "url":
-                urls.append(val)
-            elif op == "url_inf_2":
-                urls.append(val[0])
-
-        bodies = _fetch_many(urls)    # {url: bytes}
-
-        # process each task in the layer
-        for curr_elem, curr_segments, curr_depth, backlink in batch:
-            if not curr_segments:
-                if curr_elem is not None:
-                    yield curr_elem
-                continue
-
-            op, value = curr_segments[0]
-            log.debug(
-                f"{'  '*curr_depth}[CBFS] op={op} depth={curr_depth} "
-                f"url={value if op=='url' else ''}"
-            )
-
-            # URL-fetching ops handled directly (they depend on *bodies*)
-            if op in {"url", "url_inf_2"}:
-                url, prev_inf_val = (value, None) if op == "url" else value
-                if url in seen_urls:
-                    continue
-                body = bodies.get(url)
-                if body is None:
-                    log.error(f"{'  '*curr_depth}[CBFS] fetch failed: {url}")
-                    continue
-
-                # run hook chain: post_fetch -> html.parse -> post_parse --
-                for hook in get_hooks():
-                    body = getattr(hook, "post_fetch",
-                                   lambda _, c: c)(_ctx(url, backlink,
-                                                        curr_depth, [],
-                                                        seen_urls), body)
-                    if not body:
-                        break
-                else:  # executed only if loop *not* broken
-                    new_elem = html.fromstring(body, base_url=url)
-                    new_elem.set("backlink", backlink)
-                    new_elem.set("depth", str(curr_depth))
-                    seen_urls.add(url)
-
-                    for hook in get_hooks():
-                        new_elem = getattr(hook, "post_parse",
-                                           lambda _, e: e)(
-                            _ctx(url, backlink, curr_depth,
-                                 curr_segments, seen_urls), new_elem)
-                        if new_elem is None:
-                            break
-                    if new_elem is None:
-                        continue
-
-                    # enqueue next layer
-                    if curr_depth <= max_depth:
-                        queue.append(
-                            Task(new_elem, curr_segments[1:],
-                                 curr_depth + 1, new_elem.base_url)
-                        )
-                        if op == "url_inf_2":
-                            queue.append(
-                                Task(new_elem,
-                                     [("url_inf", prev_inf_val)]
-                                     + curr_segments[1:],
-                                     curr_depth + 1, new_elem.base_url)
-                            )
-                    else:
-                        yield new_elem
-                continue  # next task
-
-            # Delegate everything else to the original helper functions
-            if op == "url_from_attr":
-                _handle_url_from_attr__no_return(
-                    curr_elem, curr_segments, curr_depth, queue,
-                    backlink, max_depth, seen_urls,
-                )
-            elif op == "url_inf":
-                _haldle_url_inf__no_return(
-                    curr_elem, curr_segments, curr_depth, queue,
-                    backlink, max_depth, seen_urls,
-                )
-            elif op == "xpath":
-                yield from _handle_xpath(
-                    curr_elem, curr_segments, curr_depth, queue,
-                    backlink, max_depth, seen_urls,
-                )
-            elif op == "object":
-                yield from _handle_object(
-                    curr_elem, curr_segments, curr_depth, queue,
-                    backlink, max_depth, seen_urls,
-                )
-            else:
-                raise ValueError(f"Unknown operation: {op}")
