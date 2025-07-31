@@ -28,7 +28,7 @@ from lxml import html
 # --------------------------------------------------------------------------- #
 # Dataclass describing the crawl context for a single URL
 # --------------------------------------------------------------------------- #
-@dataclass(slots=True)
+@dataclass
 class FetchContext:
     url: str
     backlink: Optional[str]
@@ -38,7 +38,7 @@ class FetchContext:
 
 
 # --------------------------------------------------------------------------- #
-# Hook protocol – every method is optional
+# Hook protocol - every method is optional
 # --------------------------------------------------------------------------- #
 class Hook(Protocol):
     # Return False to abort fetching this URL

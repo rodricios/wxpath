@@ -1,3 +1,3 @@
-from .core import wxpath
+from .core import wxpath, wxpath_iter
 
-__all__ = ['wxpath']
+__all__ = ['wxpath', 'wxpath_iter']

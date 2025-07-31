@@ -1,5 +1,4 @@
 import re
-import inspect
 import logging
 import requests
 
@@ -51,14 +50,14 @@ def _load_page_as_element(
 ) -> html.HtmlElement:
     """
     Fetches the URL, parses it into an lxml Element, sets backlink/depth,
-    and runs any HTML‐postprocessing handlers.
+    and runs any HTML-postprocessing handlers.
     """
     content = fetch_html(url)
     
     for hook in get_hooks():
         _content = getattr(hook, 'post_fetch', lambda _, content: content)\
                     (_ctx(url, backlink, depth, [], seen_urls), content)
-                    
+
         if not _content:
             return None
         content = _content
