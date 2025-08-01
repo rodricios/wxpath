@@ -15,7 +15,8 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
     "requests>=2.0",
-    "lxml>=4.0"
+    "lxml>=4.0",
+    "elementpath>=5.0.0"
 ]
 
 [project.optional-dependencies]

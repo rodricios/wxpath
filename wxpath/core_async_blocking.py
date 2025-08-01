@@ -20,7 +20,7 @@ from typing import Mapping, Iterable
 from lxml import html
 
 from wxpath.models import Task
-from wxpath.hooks import get_hooks
+from wxpath.hooks import get_hooks, pipe_post_extract
 from wxpath.crawler import Crawler
 from wxpath.core import (
     _ctx,
@@ -69,6 +69,7 @@ def _fetch_many(urls: Iterable[str]) -> Mapping[str, bytes]:
     return out
 
 
+@pipe_post_extract
 def evaluate_wxpath_bfs_iter_async_blocking(
     elem,
     segments,
