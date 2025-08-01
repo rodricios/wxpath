@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import logging
 from collections import deque
-from typing import AsyncGenerator, Iterable
+from typing import AsyncGenerator
 from lxml import html
 
 from wxpath.models import Task
-from wxpath.hooks import get_hooks, FetchContext
+from wxpath.hooks import get_hooks
 from wxpath.crawler import Crawler
 from wxpath.core import (
     _ctx,
@@ -13,12 +15,13 @@ from wxpath.core import (
     _haldle_url_inf__no_return,
     _handle_url_from_attr__no_return,
     _count_ops_with_url,
+    parse_wxpath_expr
 )
 
 log = logging.getLogger(__name__)
 
 
-async def evaluate_wxpath_bfs_iter_concurrent_async(
+async def evaluate_wxpath_bfs_iter_async(
     elem,
     segments,
     *,
@@ -124,3 +127,7 @@ async def evaluate_wxpath_bfs_iter_concurrent_async(
                     yield o
             else:
                 raise ValueError(f"Unknown operation: {op}")
+            
+
+def wxpath_async(path_expr, max_depth=1):
+    return evaluate_wxpath_bfs_iter_async(None, parse_wxpath_expr(path_expr), max_depth=max_depth)

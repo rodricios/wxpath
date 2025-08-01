@@ -3,40 +3,60 @@
 
 **wxpath** is an extended XPath engine for Python that enables declarative web crawling by allowing XPath expressions to seamlessly follow links and traverse multiple HTML pages using a custom `url(...)` operator. It combines familiar XPath syntax with recursive web navigation for advanced data extraction workflows.
 
+If you know XPath, **wxpath** will be easy to pick up!
+
 ## Examples
 
 ```python
 import wxpath
 
-## EXAMPLE 1
-# Starting from Expression language's wiki, infinitely crawl all child links (and child's child's links recursively).
+#### EXAMPLE 1 - Simple, single page crawl and link extraction #######
+#
+# Starting from Expression language's wiki, extract all links (hrefs) 
+# from the main section. The `url(...)` operator is used to execute a 
+# web request to the specified URL and return the HTML content.
+#
+path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//main//a/@href"
+
+items = wxpath.core.wxpath(path_expr)
+
+#### EXAMPLE 2 - Two-deep crawl and link extraction ##################
+# Starting from Expression language's wiki, crawl all child links 
+# starting with '/wiki/', and extract each child's links (hrefs). The
+# `url(...)` operator is pipe'd arguments from the evaluated XPath.
+#
+path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//url(@href[starts-with(., '/wiki/')])//a/@href"
+
+#### EXAMPLE 3 - Infinite crawl with BFS tree depth limit ############
+# Starting from Expression language's wiki, infinitely crawl all child
+# links (and child's child's links recursively). The `///` syntax is
+# used to indicate an infinite crawl. 
+# Returns lxml.html.HtmlElement objects.
+#
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///main//a/url(@href)"
 # The same expression written differently:
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//main//a/@href)"
 
-# Modify max_depth to limit the BFS tree (crawl depth).
+# Modify (inclusive) max_depth to limit the BFS tree (crawl depth).
 items = list(wxpath.core.wxpath(path_expr, max_depth=1))
 
 
-## EXAMPLE 2
-# Starting from Expression language's wiki, crawl all child links, and extract all each child's links (hrefs).
-path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//url(@href[starts-with(., '/wiki/')])//a/@href"
-
-
-## EXAMPLE 3
-# Infinitely crawls Expression language's wiki's child links and childs' child links (recursively)
-# and then, for each child link crawled, extracts objects with the named fields as a dict.
- path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
+#### EXAMPLE 4 - Infinite crawl with field extraction ################
+# Infinitely crawls Expression language's wiki's child links and 
+# childs' child links (recursively) and then, for each child link 
+# crawled, extracts objects with the named fields as a dict.
+path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
      ///main//a/url(@href)
      /{
-     title://span[contains(@class, "mw-page-title-main")]/text()[0],
-     shortdescription://div[contains(@class, "shortdescription")]/text()[0],
-     url://link[@rel='canonical']/@href[0]
- }"""
+        title://span[contains(@class, "mw-page-title-main")]/text()[0],
+        shortdescription://div[contains(@class, "shortdescription")]/text()[0],
+        url://link[@rel='canonical']/@href[0]
+    }
+"""
 
 
-# Under the hood of wxpath.core.wxpath, we generate `segments` list, revealing the operations executed to
-# accomplish the crawl.
+# Under the hood of wxpath.core.wxpath, we generate `segments` list, 
+# revealing the operations executed to accomplish the crawl.
 segments = wxpath.core.parse_wxpath_expr(path_expr); segments
 
 results = []
@@ -44,6 +64,38 @@ for r in wxpath.core.evaluate_wxpath_bfs_iter(None, segments, max_depth=2):
     print(r)
     results.append(r)
 ```
+
+
+## Concurrent Requests
+
+**wxpath** supports concurrent requests using a asyncio-in-sync pattern, allowing you to crawl multiple pages concurrently while maintaining the simplicity of synchronous code. This is particularly useful for large-scale crawls in strictly synchronous execution environments (i.e., not inside an `asyncio` event loop) where performance is a concern.
+
+```python
+from wxpath import core_async_blocking
+
+path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(@href[starts-with(., '/wiki/')])//a/@href"
+items = list(wxpath_iter_async_blocking(path_expr, max_depth=1))
+```
+
+
+## `asyncio` Support
+
+**wxpath** also provides an asynchronous API for crawling and extracting data, allowing you to take advantage of Python's `asyncio` capabilities for non-blocking I/O operations.
+
+```python
+import asyncio
+from wxpath import core_async
+
+items = []
+
+async def main():
+    path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(@href[starts-with(., '/wiki/')])//a/@href"
+    async for item in core_async.wxpath_async(path_expr, max_depth=1):
+        items.append(item)
+
+asyncio.run(main())
+```
+
 
 ## Hooks
 
@@ -94,6 +146,7 @@ pip install -e .
 - Combine XPath-style syntax with web traversal semantics
 - Enable declarative, recursive scraping without boilerplate
 - Stay lightweight and composable
+- Asynchronous support for high-performance crawls
 
 ## License
 
@@ -115,16 +168,16 @@ MIT
         shortdescription://div[contains(@class, "shortdescription")]/text()
     }
     ```
-5. Build out pipeline/extention system that allows for:
+5. Build out pipeline/extention system that allows for (IN PROGRESS):
     1. More precise webpage processing
     2. Finetuned crawling - we can direct an infinite crawl via xpath filtering and xpath operations, 
        however, more complex logic can be implemented to prune the search tree.
-6. Flesh out Requesting engine
+6. Flesh out Requesting engine (IN PROGRESS - requires documentation):
     * Support for custom headers, cookies, etc.
     * Support for proxies
     * Support for request throttling
     * Support for request retries
-
+7. XPath 3 support via `elementpath` library
 
 ## Roadmap (rough and subject to drastic change)
 

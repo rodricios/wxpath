@@ -1,21 +1,18 @@
-# """
-# wxpath.hooks
-# ============
+"""
+Pluggable hook system for wxpath.
 
-# Pluggable hook system for wxpath.
+Write once:
 
-# Write once:
+    from wxpath import hooks
 
-#     from wxpath import hooks
+    @hooks.register
+    class OnlyEnglish:
+        def post_parse(self, ctx, elem):
+            lang = elem.xpath('string(/html/@lang)').lower()[:2]
+            return elem if lang in ("en", "") else None
 
-#     @hooks.register
-#     class OnlyEnglish:
-#         def post_parse(self, ctx, elem):
-#             lang = elem.xpath('string(/html/@lang)').lower()[:2]
-#             return elem if lang in ("en", "") else None
-
-# ... and wxpath.core will call it automatically.
-# """
+... and wxpath.core will call it automatically.
+"""
 
 from __future__ import annotations
 
