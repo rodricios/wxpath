@@ -56,14 +56,20 @@ class Crawler:
         ) as s:
             await asyncio.gather(*(self._fetch(u, cb, s) for u in urls))
 
+    async def run_async(
+        self,
+        urls: Iterable[str],
+        cb: Callable[[str, aiohttp.ClientResponse, bytes], Awaitable[None]]
+    ):
+        if not asyncio.iscoroutinefunction(cb):
+            async def _wrap(url, r, b): return cb(url, r, b)
+            cb = _wrap
+        await self._run(urls, cb)
+
     def run(
         self,
         urls: Iterable[str],
         cb: Callable[[str, aiohttp.ClientResponse, bytes], Awaitable[None]]
              | Callable[[str, aiohttp.ClientResponse, bytes], None],
     ):
-        if not asyncio.iscoroutinefunction(cb):
-            async def _wrap(url, r, b): return cb(url, r, b)
-            cb = _wrap
-
-        asyncio.run(self._run(urls, cb))
+        asyncio.run(self.run_async(urls, cb))

@@ -1,12 +1,13 @@
 import argparse
 import json
-from wxpath.core import wxpath_iter, WxStr, parse_wxpath_expr
+from wxpath.core import WxStr, parse_wxpath_expr
+from wxpath.core_async_blocking import wxpath_iter_async_blocking
 
 
 def _simplify(obj):
     """
     Recursively convert custom wrapper types (e.g., WxStr / ExtractedStr,
-    lxml elements) into plain built‑in Python types so that printing or
+    lxml elements) into plain built-in Python types so that printing or
     JSON serialising shows clean values.
     """
     # Scalars
@@ -43,7 +44,7 @@ def main():
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
-    for r in wxpath_iter(args.expression, args.depth):
+    for r in wxpath_iter_async_blocking(args.expression, args.depth):
         clean = _simplify(r)
         print(json.dumps(clean, ensure_ascii=False))
 

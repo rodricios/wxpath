@@ -6,7 +6,7 @@ import asyncio
 from types import SimpleNamespace
 
 from wxpath import core
-from wxpath import core_concurrent
+from wxpath import core_async_blocking
 
 
 def _generate_fake_fetch_html(pages):
@@ -49,14 +49,14 @@ def test_concurrent_single_level(monkeypatch):
     # stub out network
     monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html(pages))
     monkeypatch.setattr(
-        core_concurrent,
+        core_async_blocking,
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
 
     expr = "url('http://test/')"
     segs = core.parse_wxpath_expr(expr)
-    out = list(core_concurrent.evaluate_wxpath_bfs_iter_concurrent(None, segs))
+    out = list(core_async_blocking.evaluate_wxpath_bfs_iter_async_blocking(None, segs))
 
     assert len(out) == 1
     root = out[0]
@@ -78,14 +78,14 @@ def test_concurrent_two_levels(monkeypatch):
 
     monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html(pages))
     monkeypatch.setattr(
-        core_concurrent,
+        core_async_blocking,
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
 
     expr = "url('http://test/')//url(@href)"
     segs = core.parse_wxpath_expr(expr)
-    out = list(core_concurrent.evaluate_wxpath_bfs_iter_concurrent(None, segs, max_depth=1))
+    out = list(core_async_blocking.evaluate_wxpath_bfs_iter_async_blocking(None, segs, max_depth=1))
 
     assert [e.base_url for e in out] == [
         "http://test/a.html",

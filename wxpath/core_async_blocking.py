@@ -29,9 +29,11 @@ from wxpath.core import (
     _haldle_url_inf__no_return,
     _handle_url_from_attr__no_return,
     _count_ops_with_url,
+    parse_wxpath_expr,
 )
 
 log = logging.getLogger(__name__)
+
 
 def _fetch_many(urls: Iterable[str]) -> Mapping[str, bytes]:
     """Fetch a batch of URLs concurrently.
@@ -67,7 +69,7 @@ def _fetch_many(urls: Iterable[str]) -> Mapping[str, bytes]:
     return out
 
 
-def evaluate_wxpath_bfs_iter_concurrent(
+def evaluate_wxpath_bfs_iter_async_blocking(
     elem,
     segments,
     *,
@@ -102,6 +104,12 @@ def evaluate_wxpath_bfs_iter_concurrent(
         therefore this function must **not** be invoked from within an active
         asyncio event loop.
     """
+    
+    log.warning(
+        "This function must **not** be invoked from within an active asyncio "
+        "event loop.\nWhy? Because it uses wxpath.crawler.Crawler.run, which "
+        "spins up its own event loop."
+    )
 
     assert max_depth >= _count_ops_with_url(segments) - 1, (
         "max_depth+1 must be >= number of url* segments "
@@ -224,3 +232,16 @@ def evaluate_wxpath_bfs_iter_concurrent(
                 )
             else:
                 raise ValueError(f"Unknown operation: {op}")
+
+
+def wxpath_iter_async_blocking(path_expr, max_depth=1):
+    return filter(
+        None, 
+        evaluate_wxpath_bfs_iter_async_blocking(
+            None, parse_wxpath_expr(path_expr), max_depth=max_depth
+        )
+    )
+
+
+def wxpath_async_blocking(path_expr, max_depth=1):
+    return list(wxpath_iter_async_blocking(path_expr, max_depth=max_depth))
