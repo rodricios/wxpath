@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 
 from wxpath import patches
 from wxpath.models import WxStr, Task
-from wxpath.hooks import get_hooks, FetchContext
+from wxpath.hooks import get_hooks, FetchContext, pipe_post_extract
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ def fetch_html(url):
 
 
 def parse_html(content):
-    return etree.HTML(content)
+    return etree.HTML(content, parser=patches.html_parser_with_xpath3)
 
 
 def _make_links_absolute(links, base_url):
@@ -62,7 +62,9 @@ def _load_page_as_element(
             return None
         content = _content
     
-    elem = html.fromstring(content, base_url=url)  # type: html.HtmlElement
+    # elem = html.fromstring(content, base_url=url)  # type: html.HtmlElement
+    elem = parse_html(content) # type: html.HtmlElement
+    elem.base_url = url  # sets both attribute and doc-level URL
     elem.set("backlink", backlink)
     elem.set("depth", str(depth))
     seen_urls.add(url)
@@ -189,8 +191,8 @@ def parse_wxpath_expr(path_expr):
             raise ValueError(f"Unsupported url() segment: {s}")
         elif s.startswith('///'):
             parsed.append(('inf_xpath', "//" + s[3:]))
-        elif s.startswith('/{') or s.startswith('{'):
-            parsed.append(('object', s))
+        # elif s.startswith('/{') or s.startswith('{'):
+        #     parsed.append(('object', s))
         else:
             parsed.append(('xpath', s))
     
@@ -236,7 +238,7 @@ def _count_ops_with_url(segments):
 
 def _get_absolute_links_from_elem_and_xpath(elem, xpath):
     base_url = getattr(elem, 'base_url', None)
-    return _make_links_absolute(elem.xpath(xpath), base_url)
+    return _make_links_absolute(elem.xpath3(xpath), base_url)
 
 
 def _ctx(url: str, backlink: str, depth: int, segments: list, seen_urls: set) -> FetchContext:
@@ -396,7 +398,7 @@ def _handle_xpath(curr_elem, curr_segments, curr_depth, queue, backlink, max_dep
     if curr_elem is None:
         raise ValueError("Element must be provided when path_expr does not start with 'url()'.")
     base_url = getattr(curr_elem, 'base_url', None)
-    elems = curr_elem.xpath(value)
+    elems = curr_elem.xpath3(value)
     
     for elem in elems:
         if len(curr_segments) == 1:
@@ -457,7 +459,7 @@ def _handle_object(curr_elem, curr_segments, curr_depth, queue, backlink,
     # Yield the constructed object; no further traversal after an object segment.
     yield result
 
-
+@pipe_post_extract
 def evaluate_wxpath_bfs_iter(elem, segments, max_depth=1, seen_urls=None, curr_depth=0):
     """
     BFS version of evaluate_wxpath.

@@ -6,7 +6,7 @@ from typing import AsyncGenerator
 from lxml import html
 
 from wxpath.models import Task
-from wxpath.hooks import get_hooks
+from wxpath.hooks import get_hooks, pipe_post_extract_async
 from wxpath.crawler import Crawler
 from wxpath.core import (
     _ctx,
@@ -21,6 +21,7 @@ from wxpath.core import (
 log = logging.getLogger(__name__)
 
 
+@pipe_post_extract_async
 async def evaluate_wxpath_bfs_iter_async(
     elem,
     segments,

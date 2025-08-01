@@ -1,5 +1,7 @@
 import argparse
 import json
+
+from wxpath import hooks
 from wxpath.core import WxStr, parse_wxpath_expr
 from wxpath.core_async_blocking import wxpath_iter_async_blocking
 

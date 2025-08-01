@@ -47,10 +47,10 @@ items = list(wxpath.core.wxpath(path_expr, max_depth=1))
 # crawled, extracts objects with the named fields as a dict.
 path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
      ///main//a/url(@href)
-     /{
-        title://span[contains(@class, "mw-page-title-main")]/text()[0],
-        shortdescription://div[contains(@class, "shortdescription")]/text()[0],
-        url://link[@rel='canonical']/@href[0]
+     /map {
+        'title':(//span[contains(@class, "mw-page-title-main")]/text())[1], 
+        'short_description':(//div[contains(@class, "shortdescription")]/text())[1],
+        'url'://link[@rel='canonical']/@href[1]
     }
 """
 
@@ -65,6 +65,30 @@ for r in wxpath.core.evaluate_wxpath_bfs_iter(None, segments, max_depth=2):
     results.append(r)
 ```
 
+## XPath 3.1 By Default
+
+**wxpath** uses the `elementpath` library to provide XPath 3.1 support, enabling advanced XPath features like **maps**, **arrays**, and more. This allows you to write more expressive and powerful XPath queries.
+
+```python
+path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
+    ///div[@id='mw-content-text']//a/url(@href)
+    /map{ 
+        'title':(//span[contains(@class, "mw-page-title-main")]/text())[1], 
+        'short_description':(//div[contains(@class, "shortdescription")]/text())[1],
+        'url'://link[@rel='canonical']/@href[1]
+    }"""
+# [...
+# {'title': 'Computer language',
+# 'short_description': 'Formal language for communicating with a computer',
+# 'url': 'https://en.wikipedia.org/wiki/Computer_language'},
+# {'title': 'Machine-readable medium and data',
+# 'short_description': 'Medium capable of storing data in a format readable by a machine',
+# 'url': 'https://en.wikipedia.org/wiki/Machine-readable_medium_and_data'},
+# {'title': 'Domain knowledge',
+# 'short_description': 'Specialist knowledge within a specific field',
+# 'url': 'https://en.wikipedia.org/wiki/Domain_knowledge'},
+# ...]
+```
 
 ## Concurrent Requests
 
@@ -123,12 +147,15 @@ class OnlyEnglish:
 ## CLI
 
 ```bash
-python -m wxpath.cli "url('https://en.wikipedia.org/wiki/Expression_language')\
+python -m wxpath.cli "\
+    url('https://en.wikipedia.org/wiki/Expression_language')\
     ///main//a/url(@href)\
-    /{title://h1[@id='firstHeading']//span[contains(@class, 'mw-page-title-main')]/text()[0], \
-    shortdescription://div[contains(@class, 'shortdescription')]/text()[0], \
-    url://link[@rel='canonical']/@href[0] \
-}" --depth 1
+    /map {\
+        'title'://h1[@id='firstHeading']//span[contains(@class, 'mw-page-title-main')]/text(),\
+        'short_description'://div[contains(@class, 'shortdescription')]/text(),\
+        'url'://link[@rel='canonical']/@href\
+        }\
+    " --depth 1
 
 # ...
 # {"title": "Maintenance template removal", "shortdescription": "How-to-guide on addressing and removing maintenance templates", "url": "https://en.wikipedia.org/wiki/Help:Maintenance_template_removal"}

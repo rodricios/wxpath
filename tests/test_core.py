@@ -515,11 +515,11 @@ def test_parse_wxpath_expr_url_from_attr_without_elem():
 
 
 def test_parse_wxpath_expr_object_segment():
-    expr = "url('http://example.com')/{ title://h1/text() }"
+    expr = "url('http://example.com')/map{ 'title':string(//h1/text()) }"
     parsed = parse_wxpath_expr(expr)
     assert parsed == [
         ('url', 'http://example.com'),
-        ('object', "/{ title://h1/text() }"),
+        ('xpath', "/map{ 'title':string(//h1/text()) }"),
     ]
 
 
@@ -536,9 +536,9 @@ def test_evaluate_wxpath_bfs_iter_object_extraction(monkeypatch):
     monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = (
-        "url('http://test/')/{ "
-        "title://h1/text()[0], "
-        "paragraphs://p/text() "
+        "url('http://test/')/map { "
+        "'title'://h1/text()/string(), "
+        "'paragraphs'://p/text() "
         "}"
     )
     segments = parse_wxpath_expr(expr)
@@ -562,10 +562,10 @@ def test_evaluate_wxpath_bfs_iter_object_indexing(monkeypatch):
     monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = (
-        "url('http://test/')/{ "
-        "first://p/text()[0], "
-        "second://p/text()[1], "
-        "all://p/text() "
+        "url('http://test/')/ map{ "
+        "'first':string((//p/text())[1]), "
+        "'second':string((//p/text())[2]), "
+        "'all'://p/text() "
         "}"
     )
     segments = parse_wxpath_expr(expr)

@@ -1,16 +1,3 @@
-import re
-from lxml import html, etree
-
-class WxElement(html.HtmlElement):
-    def __repr__(self):
-        return f"WxElement(tag={self.tag}, attrib={dict(self.attrib)}, base_url={getattr(self, 'base_url', None)!r})"
-        
-    def wxpath(self, expr, depth=1, **kwargs):
-        # If no custom DSL, use standard XPath
-        if not re.split(r"(url\(.+?\))", expr):
-            return self.xpath(expr, **kwargs)
-        from wxpath.core import wxpath  # your DSL function
-        return wxpath(self, expr, depth=depth)
 
 
 class WxStr(str):
@@ -36,4 +23,3 @@ class Task:
     
     def __iter__(self):
         return iter((self.elem, self.segments, self.depth, self.backlink))
-    

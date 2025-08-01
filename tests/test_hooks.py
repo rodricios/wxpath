@@ -75,7 +75,7 @@ def test_post_fetch_mutation(monkeypatch):
         def post_fetch(self, ctx, html_bytes):
             return html_bytes.replace(b"The A Page", b"Rewritten")
 
-    hooks.register(RewriteTitle())
+    hooks.register(RewriteTitle)
     monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html({"http://a/": HTML_A}))
     expr = "url('http://a/')//h1/text()"
     segs = core.parse_wxpath_expr(expr)
@@ -91,7 +91,7 @@ def test_post_fetch_prunes_branch(monkeypatch):
                 return None
             return html_bytes
 
-    hooks.register(Prune())
+    hooks.register(Prune)
     monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html({
         "http://a/": HTML_A,
         "http://b/": HTML_B,
@@ -113,7 +113,7 @@ def test_post_parse_prunes_branch(monkeypatch):
         def post_parse(self, ctx, elem):
             return None  # drop entire branch
 
-    hooks.register(Prune())
+    hooks.register(Prune)
     monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html({"http://a/": HTML_A}))
     expr = "url('http://a/')///url(@href)"
     segs = core.parse_wxpath_expr(expr)
