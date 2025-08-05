@@ -1,3 +1,4 @@
+from typing import NamedTuple
 
 
 class WxStr(str):
@@ -23,3 +24,8 @@ class Task:
     
     def __iter__(self):
         return iter((self.elem, self.segments, self.depth, self.backlink))
+
+
+class Segment(NamedTuple):
+    op: str
+    value: str

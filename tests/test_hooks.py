@@ -1,9 +1,6 @@
-
-
 import pytest
 from wxpath import hooks
-import wxpath.core as core
-
+from wxpath.core import parser, helpers, sync
 
 def _generate_fake_fetch_html(pages):
     def _fake_fetch_html(url):
@@ -43,10 +40,6 @@ HTML_D = b"""
 """
 
 
-# --------------------------------------------------------------------------- #
-# Tests
-# --------------------------------------------------------------------------- #
-
 @pytest.fixture(autouse=True)
 def clear_hooks():
     # Clear hooks before each test
@@ -64,8 +57,8 @@ def clear_hooks():
 
 #     monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html({"http://a/": HTML_A}))
 #     expr = "url('http://a/')//h1/text()[0]"
-#     segs = core.parse_wxpath_expr(expr)
-#     results = list(core.evaluate_wxpath_bfs_iter(None, segs, max_depth=0))
+#     segs = parser.parse_wxpath_expr(expr)
+#     results = list(sync.evaluate_wxpath_bfs_iter(None, segs, max_depth=0))
 #     assert results == []  # nothing fetched because vetoed
 
 
@@ -76,11 +69,11 @@ def test_post_fetch_mutation(monkeypatch):
             return html_bytes.replace(b"The A Page", b"Rewritten")
 
     hooks.register(RewriteTitle)
-    monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html({"http://a/": HTML_A}))
+    monkeypatch.setattr(helpers, "fetch_html", _generate_fake_fetch_html({"http://a/": HTML_A}))
     expr = "url('http://a/')//h1/text()"
-    segs = core.parse_wxpath_expr(expr)
+    segs = parser.parse_wxpath_expr(expr)
     
-    val = list(core.evaluate_wxpath_bfs_iter(None, segs, max_depth=0))[0]
+    val = list(sync.evaluate_wxpath_bfs_iter(None, segs, max_depth=0))[0]
     assert str(val) == "Rewritten"
     
 def test_post_fetch_prunes_branch(monkeypatch):
@@ -92,15 +85,15 @@ def test_post_fetch_prunes_branch(monkeypatch):
             return html_bytes
 
     hooks.register(Prune)
-    monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html({
+    monkeypatch.setattr(helpers, "fetch_html", _generate_fake_fetch_html({
         "http://a/": HTML_A,
         "http://b/": HTML_B,
         "http://c/": HTML_C,
         "http://d/": HTML_D,
         }))
     expr = "url('http://a/')///url(@href)"
-    segs = core.parse_wxpath_expr(expr)
-    results = list(core.evaluate_wxpath_bfs_iter(None, segs, max_depth=1))
+    segs = parser.parse_wxpath_expr(expr)
+    results = list(sync.evaluate_wxpath_bfs_iter(None, segs, max_depth=1))
     assert [e.base_url for e in results] == [
         'http://c/',
         'http://d/',
@@ -114,10 +107,10 @@ def test_post_parse_prunes_branch(monkeypatch):
             return None  # drop entire branch
 
     hooks.register(Prune)
-    monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html({"http://a/": HTML_A}))
+    monkeypatch.setattr(helpers, "fetch_html", _generate_fake_fetch_html({"http://a/": HTML_A}))
     expr = "url('http://a/')///url(@href)"
-    segs = core.parse_wxpath_expr(expr)
-    results = list(core.evaluate_wxpath_bfs_iter(None, segs, max_depth=1))
+    segs = parser.parse_wxpath_expr(expr)
+    results = list(sync.evaluate_wxpath_bfs_iter(None, segs, max_depth=1))
     assert results == []  # nothing because branch stopped
 
 
@@ -130,9 +123,9 @@ def test_post_parse_prunes_branch(monkeypatch):
 #     hooks.register(BlockB())
 #     monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html({"http://a/": HTML_A, "http://b/": HTML_B}))
 #     expr = "url('http://a/')///url(@href)"
-#     segs = core.parse_wxpath_expr(expr)
+#     segs = parser.parse_wxpath_expr(expr)
 #     # Should not fetch B because vetoed, so result list empty
-#     results = list(core.evaluate_wxpath_bfs_iter(None, segs, max_depth=1))
+#     results = list(sync.evaluate_wxpath_bfs_iter(None, segs, max_depth=1))
 #     assert results == []
 
 
@@ -149,6 +142,6 @@ def test_post_parse_prunes_branch(monkeypatch):
 #     hooks.register(Upper())
 #     monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html({"http://a/": HTML_A}))
 #     expr = "url('http://a/')/{ title://h1/text()[0] }"
-#     segs = core.parse_wxpath_expr(expr)
-#     obj = list(core.evaluate_wxpath_bfs_iter(None, segs, max_depth=0))[0]
+#     segs = parser.parse_wxpath_expr(expr)
+#     obj = list(sync.evaluate_wxpath_bfs_iter(None, segs, max_depth=0))[0]
 #     assert obj["title"] == "THE A PAGE"

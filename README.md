@@ -57,7 +57,7 @@ path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
 
 # Under the hood of wxpath.core.wxpath, we generate `segments` list, 
 # revealing the operations executed to accomplish the crawl.
-segments = wxpath.core.parse_wxpath_expr(path_expr); segments
+segments = wxpath.core.parser.parse_wxpath_expr(path_expr); segments
 
 results = []
 for r in wxpath.core.evaluate_wxpath_bfs_iter(None, segments, max_depth=2):
@@ -101,10 +101,10 @@ pip install -e ".[async]" # or pip install aiohttp
 **wxpath** supports concurrent requests using a asyncio-in-sync pattern, allowing you to crawl multiple pages concurrently while maintaining the simplicity of synchronous code. This is particularly useful for large-scale crawls in strictly synchronous execution environments (i.e., not inside an `asyncio` event loop) where performance is a concern.
 
 ```python
-from wxpath import core_async_blocking
+from wxpath.core.async_ import wxpath_async_blocking_iter
 
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(@href[starts-with(., '/wiki/')])//a/@href"
-items = list(wxpath_iter_async_blocking(path_expr, max_depth=1))
+items = list(wxpath_async_blocking_iter(path_expr, max_depth=1))
 ```
 
 
@@ -114,13 +114,13 @@ items = list(wxpath_iter_async_blocking(path_expr, max_depth=1))
 
 ```python
 import asyncio
-from wxpath import core_async
+from wxpath.core.async_ import wxpath_async
 
 items = []
 
 async def main():
     path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(@href[starts-with(., '/wiki/')])//a/@href"
-    async for item in core_async.wxpath_async(path_expr, max_depth=1):
+    async for item in wxpath_async(path_expr, max_depth=1):
         items.append(item)
 
 asyncio.run(main())
