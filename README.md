@@ -20,7 +20,12 @@ path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//main//a/@
 
 items = wxpath.core.wxpath(path_expr)
 
+# Use wxpath.core.wxpath_async_blocking[_iter] for concurrent requests
+# with much higher throughput (see below):
+items = wxpath.core.wxpath_async_blocking(path_expr)
+
 #### EXAMPLE 2 - Two-deep crawl and link extraction ##################
+#
 # Starting from Expression language's wiki, crawl all child links 
 # starting with '/wiki/', and extract each child's links (hrefs). The
 # `url(...)` operator is pipe'd arguments from the evaluated XPath.
@@ -28,23 +33,26 @@ items = wxpath.core.wxpath(path_expr)
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//url(@href[starts-with(., '/wiki/')])//a/@href"
 
 #### EXAMPLE 3 - Infinite crawl with BFS tree depth limit ############
+#
 # Starting from Expression language's wiki, infinitely crawl all child
 # links (and child's child's links recursively). The `///` syntax is
 # used to indicate an infinite crawl. 
 # Returns lxml.html.HtmlElement objects.
 #
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///main//a/url(@href)"
+
 # The same expression written differently:
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//main//a/@href)"
 
 # Modify (inclusive) max_depth to limit the BFS tree (crawl depth).
-items = list(wxpath.core.wxpath(path_expr, max_depth=1))
-
+items = wxpath.core.wxpath(path_expr, max_depth=1)
 
 #### EXAMPLE 4 - Infinite crawl with field extraction ################
+#
 # Infinitely crawls Expression language's wiki's child links and 
 # childs' child links (recursively) and then, for each child link 
 # crawled, extracts objects with the named fields as a dict.
+#
 path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
      ///main//a/url(@href)
      /map {
@@ -57,7 +65,7 @@ path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
 
 # Under the hood of wxpath.core.wxpath, we generate `segments` list, 
 # revealing the operations executed to accomplish the crawl.
-segments = wxpath.core.parse_wxpath_expr(path_expr); segments
+segments = wxpath.core.parser.parse_wxpath_expr(path_expr); segments
 
 results = []
 for r in wxpath.core.evaluate_wxpath_bfs_iter(None, segments, max_depth=2):
@@ -70,13 +78,15 @@ for r in wxpath.core.evaluate_wxpath_bfs_iter(None, segments, max_depth=2):
 **wxpath** uses the `elementpath` library to provide XPath 3.1 support, enabling advanced XPath features like **maps**, **arrays**, and more. This allows you to write more expressive and powerful XPath queries.
 
 ```python
-path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
+path_expr = """
+    url('https://en.wikipedia.org/wiki/Expression_language')
     ///div[@id='mw-content-text']//a/url(@href)
     /map{ 
         'title':(//span[contains(@class, "mw-page-title-main")]/text())[1], 
         'short_description':(//div[contains(@class, "shortdescription")]/text())[1],
         'url'://link[@rel='canonical']/@href[1]
-    }"""
+    }
+"""
 # [...
 # {'title': 'Computer language',
 # 'short_description': 'Formal language for communicating with a computer',
@@ -90,7 +100,7 @@ path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
 # ...]
 ```
 
-## Concurrent Requests
+## Asynchronous Crawling
 
 Requires `aiohttp` dependency: 
 
@@ -98,32 +108,33 @@ Requires `aiohttp` dependency:
 pip install -e ".[async]" # or pip install aiohttp
 ```
 
-**wxpath** supports concurrent requests using a asyncio-in-sync pattern, allowing you to crawl multiple pages concurrently while maintaining the simplicity of synchronous code. This is particularly useful for large-scale crawls in strictly synchronous execution environments (i.e., not inside an `asyncio` event loop) where performance is a concern.
 
-```python
-from wxpath import core_async_blocking
-
-path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(@href[starts-with(., '/wiki/')])//a/@href"
-items = list(wxpath_iter_async_blocking(path_expr, max_depth=1))
-```
-
-
-## `asyncio` Support
-
-**wxpath** also provides an asynchronous API for crawling and extracting data, allowing you to take advantage of Python's `asyncio` capabilities for non-blocking I/O operations.
+**wxpath** provides an asynchronous API for crawling and extracting data, allowing you to take advantage of Python's `asyncio` capabilities for non-blocking I/O operations.
 
 ```python
 import asyncio
-from wxpath import core_async
+from wxpath.core.async_ import wxpath_async
 
 items = []
 
 async def main():
     path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(@href[starts-with(., '/wiki/')])//a/@href"
-    async for item in core_async.wxpath_async(path_expr, max_depth=1):
+    async for item in wxpath_async(path_expr, max_depth=1):
         items.append(item)
 
 asyncio.run(main())
+```
+
+### Blocking, Concurrent Requests
+
+
+**wxpath** also supports concurrent requests using an asyncio-in-sync pattern, allowing you to crawl multiple pages concurrently while maintaining the simplicity of synchronous code. This is particularly useful for large-scale crawls in strictly synchronous execution environments (i.e., not inside an `asyncio` event loop) where performance is a concern.
+
+```python
+from wxpath.core.async_ import wxpath_async_blocking_iter
+
+path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(@href[starts-with(., '/wiki/')])//a/@href"
+items = list(wxpath_async_blocking_iter(path_expr, max_depth=1))
 ```
 
 
@@ -143,8 +154,26 @@ class OnlyEnglish:
 
 ```
 
+### Async usage
+
+NOTE: do not mix sync and async hooks in the same project as it will lead to unexpected behavior.
+
+```python
+
+from wxpath import hooks
+
+@hooks.register
+class OnlyEnglish:
+    async def post_parse(self, ctx, elem):
+        lang = elem.xpath('string(/html/@lang)').lower()[:2]
+        return elem if lang in ("en", "") else None
+
+```
+
 
 ## CLI
+
+**wxpath** provides a command-line interface (CLI) to quickly execute wxpath expressions directly from the terminal.
 
 ```bash
 python -m wxpath.cli "\
@@ -187,7 +216,7 @@ MIT
 
 ## TODO
 
-1. Support `///url('https://en.wikipedia.org/wiki/United_States') - crawls page and all forward links infinitely
+1. Support `///url('https://en.wikipedia.org/wiki/United_States')` - crawls page and all forward links infinitely
 2. ~~Support more infinite crawl filterings:~~
     * ~~`url('https://en.wikipedia.org/wiki/United_States')///main//a/url(@href)`~~
 3. Flesh out tests on filtered infinite crawls
@@ -210,19 +239,4 @@ MIT
     * Support for proxies
     * Support for request throttling
     * Support for request retries
-7. XPath 3 support via `elementpath` library
-
-## Roadmap (rough and subject to drastic change)
-
-1. Tighten up core.py
-    * ~~Remove or hide (behind a flag) debug print statements~~
-    * ~~Refactor parsing code into separate submodule~~
-    * Standardize operations ("op" in "op, val" pairs) related to xpath'ing and crawling instructions
-    * Introduce xpath 2, 3.1 via elementpath library
-2. Create sample projects that utilize its crawling features
-    * Neo4J addon and dashboards displaying wxpath's capabilities of crawling, extracting, and uploading (via the pipelining decorator) data.
-3. Improve Requesting engine:
-    * Support for modifications to requests
-    * Multiprocessing/parallelization of requests
-4. Standardize a knowledge-graph product
-    * RAG (Retrieval-Augmented Generation) capabilities
+7. ~~XPath 3 support via `elementpath` library~~

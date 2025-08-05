@@ -15,15 +15,12 @@ Run with:
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
-from typing import Iterable
 
-from wxpath import core, core_async
+from tests.utils import MockCrawler
+from wxpath.core import parser
+from wxpath.core import async_
 
 
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
 def _generate_fake_fetch_html(pages: dict[str, bytes]):
     """Return a stub that replaces `core.fetch_html`."""
     def _fake_fetch_html(url: str) -> bytes:
@@ -32,27 +29,6 @@ def _generate_fake_fetch_html(pages: dict[str, bytes]):
         except KeyError as exc:
             raise AssertionError(f"Unexpected URL fetched: {url!r}") from exc
     return _fake_fetch_html
-
-
-class MockCrawler:
-    """
-    Drop‑in replacement for `wxpath.crawler.Crawler`.
-
-    It provides an `run_async(urls, cb)` coroutine that feeds predefined HTML
-    bodies to the callback without performing any network requests.
-    """
-
-    def __init__(self, *a, pages: dict[str, bytes] | None = None, **kw):
-        self.pages = pages or {}
-
-    async def run_async(self, urls: Iterable[str], cb):
-        async def _one(url: str):
-            body = self.pages[url]
-            # Minimal stand‑in for `aiohttp.ClientResponse`.
-            resp = SimpleNamespace(status=200, url=url)
-            await cb(url, resp, body)
-
-        await asyncio.gather(*(_one(u) for u in urls))
 
 
 async def _collect_async(gen):
@@ -70,19 +46,18 @@ def test_async_single_level(monkeypatch):
     }
 
     # Monkey‑patch network helpers.
-    monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html(pages))
     monkeypatch.setattr(
-        core_async,
+        async_,
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
 
     expr = "url('http://test/')"
-    segments = core.parse_wxpath_expr(expr)
+    segments = parser.parse_wxpath_expr(expr)
 
     results = asyncio.run(
         _collect_async(
-            core_async.evaluate_wxpath_bfs_iter_async(None, segments)
+            async_.evaluate_wxpath_bfs_iter_async(None, segments)
         )
     )
 
@@ -107,19 +82,18 @@ def test_async_two_levels(monkeypatch):
         "http://test/b.html": b"<html><body><p>B</p></body></html>",
     }
 
-    monkeypatch.setattr(core, "fetch_html", _generate_fake_fetch_html(pages))
     monkeypatch.setattr(
-        core_async,
+        async_,
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
 
     expr = "url('http://test/')//url(@href)"
-    segments = core.parse_wxpath_expr(expr)
+    segments = parser.parse_wxpath_expr(expr)
 
     results = asyncio.run(
         _collect_async(
-            core_async.evaluate_wxpath_bfs_iter_async(None, segments, max_depth=1)
+            async_.evaluate_wxpath_bfs_iter_async(None, segments, max_depth=1)
         )
     )
 

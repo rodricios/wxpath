@@ -2,8 +2,9 @@ import argparse
 import json
 
 from wxpath import hooks
-from wxpath.core import WxStr, parse_wxpath_expr
-from wxpath.core_async_blocking import wxpath_iter_async_blocking
+from wxpath.core.models import WxStr
+from wxpath.core.sync import parse_wxpath_expr
+from wxpath.core.async_ import wxpath_async_blocking_iter
 
 
 def _simplify(obj):
@@ -46,7 +47,7 @@ def main():
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
-    for r in wxpath_iter_async_blocking(args.expression, args.depth):
+    for r in wxpath_async_blocking_iter(args.expression, args.depth):
         clean = _simplify(r)
         print(json.dumps(clean, ensure_ascii=False))
 

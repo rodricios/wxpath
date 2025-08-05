@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=7.0"]
+test = ["pytest>=7.0", "pytest-asyncio>=0.23"]
 async = ["aiohttp>=3.8.0"]
 
 [tool.pytest.ini_options]

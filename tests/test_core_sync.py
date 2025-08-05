@@ -1,22 +1,13 @@
 import pytest
-from wxpath.core import (
-    parse_wxpath_expr,
-    _extract_arg_from_url_xpath_op,
-    _make_links_absolute,
-)
-
-from wxpath.core import evaluate_wxpath_bfs_iter
 from lxml import html
 
-
-def _generate_fake_fetch_html(pages):
-    def _fake_fetch_html(url):
-        try:
-            return pages[url]
-        except KeyError:
-            raise AssertionError(f"Unexpected URL fetched: {url}")
-
-    return _fake_fetch_html
+from tests.utils import _generate_fake_fetch_html
+from wxpath.core.sync import evaluate_wxpath_bfs_iter
+from wxpath.core.helpers import _make_links_absolute
+from wxpath.core.parser import (
+    _extract_arg_from_url_xpath_op, 
+    parse_wxpath_expr
+)
 
 
 def test_parse_wxpath_expr_single_url():
@@ -106,7 +97,7 @@ def test_evaluate_wxpath_bfs_iter_crawl_one_level(monkeypatch):
     }
 
     # 2: stub out fetch_html
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     # 3: build & run
     expr = "url('http://test/')"
@@ -133,7 +124,7 @@ def test_evaluate_wxpath_bfs_iter_crawl_two_levels(monkeypatch):
     }
 
     # 2: stub out fetch_html
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     # 3: build & run
     expr = "url('http://test/')//url(@href)"
@@ -168,7 +159,7 @@ def test_evaluate_wxpath_bfs_iter__crawl_xpath_crawl(monkeypatch):
     }
 
     # 2: stub out fetch_html
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     # 3: build & run
     expr = "url('http://test/')//main//a/url(@href)"
@@ -192,7 +183,7 @@ def test_evaluate_wxpath_bfs_iter_crawl_three_levels(monkeypatch):
       'http://test/lvl2.html': b"<html><body><p>Reached L2</p></body></html>",
     }
 
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')//url(@href)//url(@href)"
     segments = parse_wxpath_expr(expr)
@@ -215,7 +206,7 @@ def test_evaluate_wxpath_bfs_iter_crawl_two_levels_and_query(monkeypatch):
         'http://test/b.html': b"<html><body><a href='page2.html'>L2</a></body></html>",
     }
     
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')//url(@href)//a/@href"
     segments = parse_wxpath_expr(expr)
@@ -235,7 +226,7 @@ def test_evaluate_wxpath_bfs_iter_crawl_three_levels_and_query(monkeypatch):
       'http://test/lvl3.html': b"<html><body><p>Reached L3</p></body></html>",
     }
 
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')//url(@href)//url(@href)//a/@href"
     segments = parse_wxpath_expr(expr)
@@ -254,7 +245,7 @@ def test_evaluate_wxpath_bfs_iter_crawl_four_levels_and_query_and_max_depth_2(mo
       'http://test/lvl4.html': b"<html><body><a href='lvl5.html'>L4</a></body></html>",
     }
 
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')//url(@href)//url(@href)//a/@href"
     segments = parse_wxpath_expr(expr)
@@ -279,7 +270,7 @@ def test_evaluate_wxpath_bfs_iter_filtered_crawl(monkeypatch):
       'http://test/lvl3.html': b"<html><body><p>Reached L3</p></body></html>",
     }
     
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')//url(@href[starts-with(., 'lvl1a')])//a/@href"
     segments = parse_wxpath_expr(expr)
@@ -304,7 +295,7 @@ def test_evaluate_wxpath_bfs_iter_infinite_crawl_max_depth_uncapped(monkeypatch)
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
     
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')///url(@href)"
     segments = parse_wxpath_expr(expr)
@@ -333,7 +324,7 @@ def test_evaluate_wxpath_bfs_iter_infinite_crawl_max_depth_1(monkeypatch):
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
     
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')///url(@href)"
     segments = parse_wxpath_expr(expr)
@@ -360,7 +351,7 @@ def test_evaluate_wxpath_bfs_iter_infinite_crawl_and_query_max_depth_1(monkeypat
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
     
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')///url(@href)//a/@href"
     segments = parse_wxpath_expr(expr)
@@ -388,7 +379,7 @@ def test_evaluate_wxpath_bfs_iter_infinite_crawl_and_query_max_depth_2(monkeypat
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
     
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = "url('http://test/')///url(@href)//a/@href"
     segments = parse_wxpath_expr(expr)
@@ -418,7 +409,7 @@ def test_evaluate_wxpath_bfs_iter_infinite_crawl_with_inf_filter_before_url_op(m
         'http://test/b1.html': b"<html><body><a href='b2.html'>Depth 2</a></body></html>",
     }
     
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
     
     expr = "url('http://test/')///main/a/url(@href)"
     segments = parse_wxpath_expr(expr)
@@ -445,7 +436,7 @@ def test_evaluate_wxpath_bfs_iter__crawl_xpath_crawl_max_depth_1(monkeypatch):
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
     
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
     
     expr = "url('http://test/')///main/a/url(@href)"
     segments = parse_wxpath_expr(expr)
@@ -473,7 +464,7 @@ def test_evaluate_wxpath_bfs_iter__crawl_inf_crawl_with_filter(monkeypatch): #in
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
     
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
     
     expr = "url('http://test/')///url(//main/a/@href)"
     segments = parse_wxpath_expr(expr)
@@ -533,7 +524,7 @@ def test_evaluate_wxpath_bfs_iter_object_extraction(monkeypatch):
         """
     }
 
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = (
         "url('http://test/')/map { "
@@ -559,7 +550,7 @@ def test_evaluate_wxpath_bfs_iter_object_indexing(monkeypatch):
         """
     }
 
-    monkeypatch.setattr('wxpath.core.fetch_html', _generate_fake_fetch_html(pages))
+    monkeypatch.setattr('wxpath.core.helpers.fetch_html', _generate_fake_fetch_html(pages))
 
     expr = (
         "url('http://test/')/ map{ "
