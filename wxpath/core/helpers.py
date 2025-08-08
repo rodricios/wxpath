@@ -1,4 +1,3 @@
-import logging
 import requests
 from typing import Optional
 from urllib.parse import urljoin
@@ -7,8 +6,9 @@ from lxml import etree, html
 
 from wxpath import patches
 from wxpath.hooks import get_hooks, FetchContext
+from wxpath.logging_utils import get_logger
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
 def _count_ops_with_url(segments):
@@ -40,8 +40,14 @@ def _get_absolute_links_from_elem_and_xpath(elem, xpath):
     return _make_links_absolute(elem.xpath3(xpath), base_url)
 
 
-def parse_html(content):
-    return etree.HTML(content, parser=patches.html_parser_with_xpath3)
+def parse_html(content, base_url=None) -> html.HtmlElement:
+    elem = etree.HTML(content, parser=patches.html_parser_with_xpath3, base_url=base_url)
+    if base_url:
+        elem.getroottree().docinfo.URL = base_url  # make base-uri() work
+        # Also set xml:base on the root element for XPath base-uri()
+        elem.set("{http://www.w3.org/XML/1998/namespace}base", base_url)
+        elem.base_url = base_url  # sets both attribute and doc-level URL
+    return elem
 
 
 def fetch_html(url):
@@ -73,11 +79,10 @@ def _load_page_as_element(
         content = _content
     
     # elem = html.fromstring(content, base_url=url)  # type: html.HtmlElement
-    elem = parse_html(content) # type: html.HtmlElement
-    elem.base_url = url  # sets both attribute and doc-level URL
+    elem = parse_html(content, base_url=url)
     elem.set("backlink", backlink)
     elem.set("depth", str(depth))
     seen_urls.add(url)
     
-    log.debug(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {url}")
+    log.debug("fetched", extra={"url": url, "depth": depth, "backlink": backlink, "op": op})
     return elem

@@ -1,6 +1,11 @@
-import asyncio, aiohttp, time, urllib.parse
+import asyncio, aiohttp, urllib.parse
 from collections import defaultdict
 from typing import Iterable, Callable, Awaitable
+
+from wxpath.logging_utils import get_logger
+
+log = get_logger(__name__)
+
 
 class Crawler:
     def __init__(
@@ -19,6 +24,19 @@ class Crawler:
         self._delay     = delay
         self._headers   = {"User-Agent": "mini-crawler"} | (headers or {})  # merge
         self._proxies   = proxies or {}
+        self._session: aiohttp.ClientSession | None = None
+
+    async def __aenter__(self):
+        self._session = aiohttp.ClientSession(
+            headers=self._headers,
+            timeout=self._timeout,
+        )
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        if self._session is not None:
+            await self._session.close()
+            self._session = None
 
     def _proxy_for(self, url: str) -> str | None:                 
         host = urllib.parse.urlsplit(url).hostname
@@ -43,18 +61,24 @@ class Crawler:
                     body = await resp.read()
                     await cb(url, resp, body)
             except Exception as exc:
-                print(f"[ERR] {url} - {exc}")
+                # TODO: adhere to ErrorPolicy?
+                log.exception(f"[REQUEST ERROR] {url}")
 
     async def _run(
         self,
         urls: Iterable[str],
         cb: Callable[[str, aiohttp.ClientResponse, bytes], Awaitable[None]],
     ):
-        async with aiohttp.ClientSession(
-            headers=self._headers,
-            timeout=self._timeout,
-        ) as s:
-            await asyncio.gather(*(self._fetch(u, cb, s) for u in urls))
+        if self._session is not None:
+            # Reuse the persistent session created by __aenter__
+            await asyncio.gather(*(self._fetch(u, cb, self._session) for u in urls))
+        else:
+            # Fallback: ephemeral session for one-off runs
+            async with aiohttp.ClientSession(
+                headers=self._headers,
+                timeout=self._timeout,
+            ) as s:
+                await asyncio.gather(*(self._fetch(u, cb, s) for u in urls))
 
     async def run_async(
         self,

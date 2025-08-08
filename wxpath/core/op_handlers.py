@@ -1,11 +1,13 @@
 """
 This module contains functions for handling each segment of a wxpath expression.
 """
-import logging
 import requests
+from typing import Callable
 
-from wxpath.core.models import Task, WxStr
 from wxpath.hooks import get_hooks
+from wxpath.core.errors import with_errors
+from wxpath.core.task import Task
+from wxpath.logging_utils import get_logger
 from wxpath.core.helpers import (
     _ctx, 
     _load_page_as_element, 
@@ -18,9 +20,38 @@ from wxpath.core.parser import (
     parse_wxpath_expr
 )
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
+
+class WxStr(str):
+    """
+    A string that has a base_url and depth associated with it. Purely for debugging.
+    """
+    def __new__(cls, value, base_url=None, depth=-1):
+        obj = super().__new__(cls, value)
+        obj.base_url = base_url
+        obj.depth = depth
+        return obj
+
+    def __repr__(self):
+        return f"WxStr({super().__repr__()}, base_url={self.base_url!r}, depth={self.depth})"
 
 
+HANDLERS: dict[str, Callable] = {}
+
+def _op(name):
+    def reg(fn): 
+        HANDLERS[name] = fn
+        return fn
+    return reg
+
+
+def get_operator(name) -> Callable:
+    if name not in HANDLERS:
+        raise ValueError(f"Unknown operation: {name}")
+    return HANDLERS[name]
+
+
+@_op('url')
 def _handle_url(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
     """
     Handles the `^url()` segment of a wxpath expression
@@ -34,7 +65,7 @@ def _handle_url(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth
     if url.startswith('@'):
         raise ValueError("Cannot use '@' in url() segment at the start of path_expr.")
     if url in seen_urls:
-        log.debug(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
+        log.debug("url seen", extra={"depth": curr_depth, "op": op, "url": url})
         return
 
     try:
@@ -50,18 +81,19 @@ def _handle_url(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth
                 return
             new_elem = _elem
 
-        log.debug(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {url} curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]}")
+        log.debug("fetched", extra={"depth": curr_depth, "op": op, "url": url})
         
         if curr_depth <= max_depth:
-            log.debug(f"{curr_depth*'  '}[BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]} url: {url}")
+            log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": url})
             queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, url))
         else:
             # NOTE: Should we pass instead of yield here?
             yield new_elem
     except requests.exceptions.RequestException as e:
-        log.error(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
+        log.exception("error fetching url", extra={"depth": curr_depth, "op": op, "url": url})
 
 
+@_op('url_from_attr')
 def _handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
     """
     Handles the `[/|//]url(@<attr>)` (e.g., `...//url(@href)`) segment of a wxpath expression
@@ -80,50 +112,55 @@ def _handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, queue
 
     for url in urls:
         if url in seen_urls:
-            log.debug(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
+            log.debug("url seen", extra={"depth": curr_depth, "op": op, "url": url})
             continue
         try:
             if curr_depth <= max_depth:
                 # Don't bump the depth here, just queue up the URL to be processed at the next depth
                 queue.append(Task(None, [('url', url)] + curr_segments[1:], curr_depth, curr_elem.base_url))
             else:
-                log.debug(f"{curr_depth*'  '}[BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
+                log.debug("reached max depth", extra={"depth": curr_depth, "op": op, "url": url})
         except requests.exceptions.RequestException as e:
-            log.error(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
+            log.exception("error fetching url", extra={"depth": curr_depth, "op": op, "url": url})
             continue
 
 
-def _haldle_url_inf__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
+@_op('url_inf')
+def _handle_url_inf__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
     """
     Handles the ///url() segment of a wxpath expression. This operation is also 
     generated internally by the parser when a `///<xpath>/[/]url()` segment is
     encountered by the parser.
+    This operation does not fetch URLs; instead, it XPaths the current element
+    for URLs, then queues them for further processing (see 
+    _handle_url_inf_and_xpath__no_return).
     """
     op, value = curr_segments[0]
 
+    if curr_depth > max_depth:
+        log.debug("reached max depth", extra={"depth": curr_depth, "op": op, "url": getattr(curr_elem, 'base_url', None)})
+        return
+    
     _path_exp = _url_inf_filter_expr(value)
 
     urls = _get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
     
-    log.debug(f"{curr_depth*'  '}[BFS][{op}] Found {len(urls)} URLs from {getattr(curr_elem, 'base_url', None) if curr_elem is not None else None} at depth {curr_depth}")
+    log.debug("found urls", extra={"depth": curr_depth, "op": op, "url": getattr(curr_elem, 'base_url', None), "url_count": len(urls)})
+
+
     for url in urls:
         if url in seen_urls:
-            log.debug(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
-            continue
-        try:
-            if curr_depth > max_depth:
-                log.debug(f"{curr_depth*'  '}[BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
-                continue
-            _segments = [('url_inf_and_xpath', (url, value))] + curr_segments[1:]
-            log.debug(f"{curr_depth*'  '}[BFS][{op}] Queueing url_inf_and_xpath for URL: {url} with segments: {_segments}")
-            # Not incrementing since we do not actually fetch the URL here
-            queue.append(Task(None, _segments, curr_depth, curr_elem.base_url))
-
-        except Exception as e:
-            log.error(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
+            log.debug("url seen", extra={"depth": curr_depth, "op": op, "url": url})
             continue
 
+        _segments = [('url_inf_and_xpath', (url, value))] + curr_segments[1:]
+        
+        log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": url})
+        # Not incrementing since we do not actually fetch the URL here
+        queue.append(Task(None, _segments, curr_depth, curr_elem.base_url))
 
+
+@_op('url_inf_and_xpath')
 def _handle_url_inf_and_xpath__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
     """
     This is an operation that is generated internally by the parser. There is
@@ -134,7 +171,7 @@ def _handle_url_inf_and_xpath__no_return(curr_elem, curr_segments, curr_depth, q
     if curr_elem is not None:
         raise ValueError("Cannot use 'url()' at the start of path_expr with an element provided.")
     if url in seen_urls:
-        log.debug(f"{curr_depth*'  '}[BFS][{op}] Skipping already seen URL: {url}")
+        log.debug("url seen", extra={"depth": curr_depth, "op": op, "url": url})
         return
     try:
         new_elem = _load_page_as_element(url, backlink, curr_depth, seen_urls)
@@ -149,31 +186,44 @@ def _handle_url_inf_and_xpath__no_return(curr_elem, curr_segments, curr_depth, q
                 return
             new_elem = _elem
 
-        log.debug(f"{curr_depth*'  '}[BFS][{op}] Fetched URL: {url}")
+        log.debug("fetched", extra={"depth": curr_depth, "op": op, "url": url})
         
         if curr_depth <= max_depth:
             # Queue the new element for further xpath evaluation
-            log.debug(f"{curr_depth*'  '}[BFS][{op}] Queueing new element for further xpath evaluation curr_depth: {curr_depth} curr_segments[1:]: {curr_segments[1:]} url: {url}")
+            log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": url})
+
             queue.append(Task(new_elem, curr_segments[1:], curr_depth+1, new_elem.base_url))
             # For url_inf, also re-enqueue for further infinite expansion
             _segments = [('url_inf', prev_op_value)] + curr_segments[1:]
-            log.debug(f"{curr_depth*'  '}[BFS][{op}] Queueing url_inf for URL: {url} with segments: {_segments}, new_elem: {new_elem}")
             queue.append(Task(new_elem, _segments, curr_depth+1, new_elem.base_url))
         else:
-            log.debug(f"{curr_depth*'  '}[BFS][{op}] Reached max depth for URL: {url}, not queuing further.")
+            log.debug("reached max depth", extra={"depth": curr_depth, "op": op, "url": url})
             pass
     except Exception as e:
-        log.error(f"{curr_depth*'  '}[BFS][{op}] Error fetching URL {url}: {e}")
+        log.exception("error fetching url", extra={"depth": curr_depth, "op": op, "url": url})
 
 
+@_op('xpath')
 def _handle_xpath(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
     """
     Handles the [/|//]<xpath> segment of a wxpath expression. This is a plain XPath expression.
+    Also handles wxpath-specific macro expansions like wx:backlink() or wx:depth().
     """
     _, value = curr_segments[0]
     if curr_elem is None:
         raise ValueError("Element must be provided when path_expr does not start with 'url()'.")
     base_url = getattr(curr_elem, 'base_url', None)
+    assert backlink == base_url, "Backlink must be equal to base_url"
+
+    _backlink_str = f"string('{curr_elem.get('backlink')}')"
+    # We use the root tree's depth and not curr_depth because curr_depth accounts for a +1 
+    # increment after each url*() hop
+    _depth_str = f"number({curr_elem.getroottree().getroot().get('depth')})"
+    value = value.replace('wx:backlink()', _backlink_str)
+    value = value.replace('wx:backlink(.)', _backlink_str)
+    value = value.replace('wx:depth()', _depth_str)
+    value = value.replace('wx:depth(.)', _depth_str)
+
     elems = curr_elem.xpath3(value)
     
     for elem in elems:
@@ -183,6 +233,7 @@ def _handle_xpath(curr_elem, curr_segments, curr_depth, queue, backlink, max_dep
             queue.append(Task(elem, curr_segments[1:], curr_depth, base_url))
 
 
+@_op('object')
 def _handle_object(curr_elem, curr_segments, curr_depth, queue, backlink,
                    max_depth, seen_urls):
     """

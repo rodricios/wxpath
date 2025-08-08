@@ -6,8 +6,12 @@ This module contains mainly two kinds of functions:
 
 """
 import re
+from typing import NamedTuple
 
-from wxpath.core.models import Segment
+
+class Segment(NamedTuple):
+    op: str
+    value: str
 
 
 def _url_inf_filter_expr(url_op_and_arg):

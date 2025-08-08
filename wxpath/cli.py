@@ -2,7 +2,7 @@ import argparse
 import json
 
 from wxpath import hooks
-from wxpath.core.models import WxStr
+from wxpath.core.op_handlers import WxStr
 from wxpath.core.sync import parse_wxpath_expr
 from wxpath.core.async_ import wxpath_async_blocking_iter
 
@@ -44,8 +44,8 @@ def main():
         print("parsed expression:", parse_wxpath_expr(args.expression))
 
     if args.debug:
-        import logging
-        logging.basicConfig(level=logging.DEBUG)
+        from wxpath import configure_logging, logging
+        configure_logging(logging.DEBUG)
 
     for r in wxpath_async_blocking_iter(args.expression, args.depth):
         clean = _simplify(r)

@@ -178,13 +178,16 @@ class OnlyEnglish:
 ```bash
 python -m wxpath.cli "\
     url('https://en.wikipedia.org/wiki/Expression_language')\
-    ///main//a/url(@href)\
-    /map {\
-        'title'://h1[@id='firstHeading']//span[contains(@class, 'mw-page-title-main')]/text(),\
-        'short_description'://div[contains(@class, 'shortdescription')]/text(),\
-        'url'://link[@rel='canonical']/@href\
-        }\
-    " --depth 1
+    ///div[@id='mw-content-text'] \
+    //a/url(@href[starts-with(., '/wiki/') \
+        and not(matches(@href, '^(?:/wiki/)?(?:Wikipedia|File|Template|Special|Template_talk|Help):'))]) \
+    /map{ \
+        'title':(//span[contains(@class, 'mw-page-title-main')]/text())[1], \
+        'short_description':(//div[contains(@class, 'shortdescription')]/text())[1], \
+        'url':string(base-uri(.)), \
+        'backlink':wx:backlink(.), \
+        'depth':wx:depth(.) \
+        }" --depth 1
 
 # ...
 # {"title": "Maintenance template removal", "shortdescription": "How-to-guide on addressing and removing maintenance templates", "url": "https://en.wikipedia.org/wiki/Help:Maintenance_template_removal"}
@@ -234,6 +237,11 @@ MIT
     1. More precise webpage processing
     2. Finetuned crawling - we can direct an infinite crawl via xpath filtering and xpath operations, 
        however, more complex logic can be implemented to prune the search tree.
+    3. Add builtin hooks for common tasks like:
+        * Filtering out non-English pages
+        * Extracting metadata from pages
+        * JSON/YAML/XML output formatting
+        * LLM integration for content analysis
 6. Flesh out Requesting engine (IN PROGRESS - requires documentation):
     * Support for custom headers, cookies, etc.
     * Support for proxies

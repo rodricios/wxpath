@@ -32,9 +32,19 @@ class XPath3Element(etree.ElementBase):
     def base_url(self, value):
         # Keep the per-element attribute (used by our crawler)
         self.set("base_url", value)
+        # Set xml:base attribute so XPath base-uri() picks it up
+        self.set("{http://www.w3.org/XML/1998/namespace}base", value)
         # Also store on the document so descendants can fetch it quickly
         self.getroottree().docinfo.URL = value
 
+    @property
+    def depth(self):
+        return int(self.get("depth", -1))
+
+    @depth.setter
+    def depth(self, value):
+        self.set("depth", str(value))
+    
 # Create and register custom parser that returns XPath3Element instances
 lookup = etree.ElementDefaultClassLookup(element=XPath3Element)
 parser = etree.HTMLParser()
