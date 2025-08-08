@@ -2,6 +2,7 @@ import pytest
 from lxml import html
 
 from tests.utils import _generate_fake_fetch_html
+from wxpath.core.errors import use_error_policy, ErrorPolicy
 from wxpath.core.sync import evaluate_wxpath_bfs_iter
 from wxpath.core.helpers import _make_links_absolute
 from wxpath.core.parser import (
@@ -65,28 +66,33 @@ def test_make_links_absolute():
 def test_evaluate_wxpath_bfs_iter_url_with_elem_raises():
     elem = html.fromstring("<div></div>")
     segments = [('url', 'http://example.com')]
-    with pytest.raises(ValueError) as excinfo:
-        list(evaluate_wxpath_bfs_iter(elem, segments))
+    
+    with use_error_policy(ErrorPolicy.RAISE):
+        with pytest.raises(ValueError) as excinfo:
+            list(evaluate_wxpath_bfs_iter(elem, segments))
     assert "Cannot use 'url()' at the start of path_expr with an element provided." in str(excinfo.value)
 
 def test_evaluate_wxpath_bfs_iter_url_from_attr_without_elem_raises():
     segments = [('url_from_attr', "//url(@href)")]
-    with pytest.raises(ValueError) as excinfo:
-        list(evaluate_wxpath_bfs_iter(None, segments))
+    with use_error_policy(ErrorPolicy.RAISE):
+        with pytest.raises(ValueError) as excinfo:
+            list(evaluate_wxpath_bfs_iter(None, segments))
     assert "Element must be provided when op is 'url_from_attr'." in str(excinfo.value)
 
 def test_evaluate_wxpath_bfs_iter_url_from_attr_invalid_arg():
     elem = html.fromstring("<div></div>")
     segments = [('url_from_attr', "//url(abc)")]
-    with pytest.raises(ValueError) as excinfo:
-        list(evaluate_wxpath_bfs_iter(elem, segments))
+    with use_error_policy(ErrorPolicy.RAISE):
+        with pytest.raises(ValueError) as excinfo:
+            list(evaluate_wxpath_bfs_iter(elem, segments))
     assert "Only '@*' is supported in url() segments not at the start of path_expr." in str(excinfo.value)
 
 def test_evaluate_wxpath_bfs_iter_unknown_op():
     elem = html.fromstring("<div></div>")
     segments = [('foo', 'bar')]
-    with pytest.raises(ValueError) as excinfo:
-        list(evaluate_wxpath_bfs_iter(elem, segments))
+    with use_error_policy(ErrorPolicy.RAISE):
+        with pytest.raises(ValueError) as excinfo:
+            list(evaluate_wxpath_bfs_iter(elem, segments))
     assert "Unknown operation: foo" in str(excinfo.value)
 
 
@@ -192,7 +198,7 @@ def test_evaluate_wxpath_bfs_iter_crawl_three_levels(monkeypatch):
     assert len(results) == 1
     assert results[0].get('depth') == '2'
     assert results[0].base_url == 'http://test/lvl2.html'
-    
+
 
 def test_evaluate_wxpath_bfs_iter_crawl_two_levels_and_query(monkeypatch):
     pages = {

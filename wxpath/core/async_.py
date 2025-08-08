@@ -1,39 +1,39 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections import deque
 from typing import AsyncGenerator
 from lxml import html
 
 from wxpath import patches
-from wxpath.core.models import Task
 from wxpath.hooks import get_hooks, pipe_post_extract_async
+from wxpath.logging_utils import get_logger
 from wxpath.crawler import Crawler
-
+from wxpath.core.task import Task
+from wxpath.core.errors import with_errors
 from wxpath.core.parser import parse_wxpath_expr
-from wxpath.core.helpers import _ctx, _count_ops_with_url
-from wxpath.core.op_handlers import (
-    _handle_object,
-    _handle_xpath,
-    _haldle_url_inf__no_return,
-    _handle_url_from_attr__no_return,
-)
+from wxpath.core.helpers import _ctx, _count_ops_with_url, parse_html
+from wxpath.core.op_handlers import get_operator
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
-async def _fetch_many_async(urls: list[str]) -> dict[str, bytes]:
+async def _fetch_many_async(crawler: Crawler, urls: list[str]) -> dict[str, bytes]:
     out: dict[str, bytes] = {}
+
     async def _cb(u: str, resp, body: bytes):
         if getattr(resp, "status", 0) == 200 and body:
             out[u] = body
-    crawler = Crawler()
+
+    if not urls:
+        return out
+
     await crawler.run_async(urls, _cb)
     return out
 
 
 @pipe_post_extract_async
+@with_errors()
 async def evaluate_wxpath_bfs_iter_async(
     elem,
     segments,
@@ -65,90 +65,90 @@ async def evaluate_wxpath_bfs_iter_async(
 
     queue: deque[Task] = deque([Task(elem, segments, 0, None)])
 
-    while queue:
-        depth = queue[0].depth
-        batch: list[Task] = []
+    crawler = Crawler()
+    async with crawler:
+        while queue:
+            # Invariant: first element has the lowest depth in the queue
+            depth = queue[0].depth
+            batch: list[Task] = []
 
-        while queue and queue[0].depth == depth:
-            batch.append(queue.popleft())
+            while queue and queue[0].depth == depth:
+                batch.append(queue.popleft())
 
-        urls: list[str] = []
-        for _elem, segs, _d, _b in batch:
-            if not segs:
-                continue
-            op, val = segs[0]
-            if op == "url":
-                urls.append(val)
-            elif op == "url_inf_and_xpath":
-                urls.append(val[0])
-
-        bodies = await _fetch_many_async(urls)
-
-        for curr_elem, curr_segments, curr_depth, backlink in batch:
-            if not curr_segments:
-                if curr_elem is not None:
-                    yield curr_elem
-                continue
-
-            op, value = curr_segments[0]
-            log.debug(
-                f"{'  '*curr_depth}[CBFS] op={op} depth={curr_depth} "
-                f"url={value if op=='url' else ''}"
-            )
-
-            if op in {"url", "url_inf_and_xpath"}:
-                url, prev_inf_val = (value, None) if op == "url" else value
-                if url in seen_urls:
+            urls: set[str] = set()
+            for _elem, segs, _d, _b in batch:
+                if not segs:
                     continue
-                body = bodies.get(url)
-                if body is None:
-                    log.error(f"{'  '*curr_depth}[CBFS] fetch failed: {url}")
+                op, val = segs[0]
+                if op == "url":
+                    urls.add(val)
+                elif op == "url_inf_and_xpath":
+                    urls.add(val[0])
+
+            bodies = await _fetch_many_async(crawler, urls)
+
+            for curr_elem, curr_segments, curr_depth, backlink in batch:
+                if not curr_segments:
+                    if curr_elem is not None:
+                        yield curr_elem
                     continue
 
-                for hook in get_hooks():
-                    body = await hook.post_fetch(_ctx(url, backlink, curr_depth, [], seen_urls), body) \
-                           if hasattr(hook, 'post_fetch') else body
-                    if not body:
-                        break
-                else:
-                    new_elem = html.fromstring(body, base_url=url)
-                    new_elem.set("backlink", backlink)
-                    new_elem.set("depth", str(curr_depth))
-                    seen_urls.add(url)
+                op, value = curr_segments[0]
 
-                    for hook in get_hooks():
-                        new_elem = await hook.post_parse(
-                            _ctx(url, backlink, curr_depth, curr_segments, seen_urls), new_elem
-                        ) if hasattr(hook, 'post_parse') else new_elem
-                        if new_elem is None:
-                            break
-                    if new_elem is None:
+                log.debug("tasked", extra={"depth": curr_depth, "op": op, "url": getattr(curr_elem, 'base_url', None)})
+
+                if op in {"url", "url_inf_and_xpath"}:
+                    url, prev_inf_val = (value, None) if op == "url" else value
+                    if url in seen_urls:
+                        continue
+                    body = bodies.get(url)
+                    if body is None:
+                        log.error("fetch failed", extra={"depth": curr_depth, "op": op, "url": url})
                         continue
 
-                    if curr_depth <= max_depth:
-                        queue.append(Task(new_elem, curr_segments[1:], curr_depth + 1, new_elem.base_url))
-                        if op == "url_inf_and_xpath":
-                            queue.append(Task(new_elem, [("url_inf", prev_inf_val)] + curr_segments[1:], curr_depth + 1, new_elem.base_url))
+                    for hook in get_hooks():
+                        body = await hook.post_fetch(_ctx(url, backlink, curr_depth, [], seen_urls), body) \
+                            if hasattr(hook, 'post_fetch') else body
+                        if not body:
+                            break
                     else:
-                        yield new_elem
-                continue
+                        # new_elem = html.fromstring(body, base_url=url)
+                        new_elem = parse_html(body, base_url=url)
+                        new_elem.set("backlink", backlink)
+                        new_elem.set("depth", str(curr_depth))
+                        seen_urls.add(url)
 
-            if op == "url_from_attr":
-                _handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls)
-            elif op == "url_inf":
-                _haldle_url_inf__no_return(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls)
-            elif op == "xpath":
-                for x in _handle_xpath(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
-                    yield x
-            elif op == "object":
-                for o in _handle_object(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls):
-                    yield o
-            else:
-                raise ValueError(f"Unknown operation: {op}")
-            
+                        for hook in get_hooks():
+                            new_elem = await hook.post_parse(
+                                _ctx(url, backlink, curr_depth, curr_segments, seen_urls), new_elem
+                            ) if hasattr(hook, 'post_parse') else new_elem
+                            if new_elem is None:
+                                break
+                        if new_elem is None:
+                            continue
+
+                        if curr_depth <= max_depth:
+                            queue.append(Task(new_elem, curr_segments[1:], curr_depth + 1, new_elem.base_url))
+                            if op == "url_inf_and_xpath":
+                                queue.append(Task(new_elem, [("url_inf", prev_inf_val)] + curr_segments[1:], curr_depth + 1, new_elem.base_url))
+                        else:
+                            yield new_elem
+                    continue
+                
+                operator = get_operator(op)
+                yield_from = operator(curr_elem, curr_segments, curr_depth, queue, backlink, max_depth, seen_urls)
+                if yield_from is not None:
+                    for x in yield_from:
+                        yield x
+                    continue
+
 
 def wxpath_async(path_expr, max_depth=1) -> AsyncGenerator:
-    return evaluate_wxpath_bfs_iter_async(None, parse_wxpath_expr(path_expr), max_depth=max_depth)
+    return evaluate_wxpath_bfs_iter_async(
+        None, 
+        parse_wxpath_expr(path_expr), 
+        max_depth=max_depth
+    )
 
 
 ##### ASYNC IN SYNC #####
@@ -182,7 +182,7 @@ def wxpath_async_blocking_iter(path_expr, max_depth=1):
     finally:
         loop.run_until_complete(loop.shutdown_asyncgens())
         loop.close()
-        
-        
+
+
 def wxpath_async_blocking(path_expr, max_depth=1):
     return list(wxpath_async_blocking_iter(path_expr, max_depth=max_depth))

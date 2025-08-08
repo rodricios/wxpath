@@ -1,5 +1,3 @@
-
-
 """
 Unit tests for `wxpath.core_async.evaluate_wxpath_bfs_iter_concurrent_async`.
 

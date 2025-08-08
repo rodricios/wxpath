@@ -1,7 +1,7 @@
 
-# wxpath
+# wxpath - the extraction language for the web
 
-**wxpath** is an extended XPath engine for Python that enables declarative web crawling by allowing XPath expressions to seamlessly follow links and traverse multiple HTML pages using a custom `url(...)` operator. It combines familiar XPath syntax with recursive web navigation for advanced data extraction workflows.
+**wxpath** (short for `webxpath`) is an extended XPath engine for Python that enables declarative web crawling by allowing XPath expressions to seamlessly follow links and traverse multiple HTML pages using a custom `url(...)` operator. It combines familiar XPath syntax with recursive web navigation for advanced data extraction workflows.
 
 If you know XPath, **wxpath** will be easy to pick up!
 
@@ -170,30 +170,41 @@ class OnlyEnglish:
 
 ```
 
+### Predefined Hooks
+
+`JSONLWriter` (aliased `NDJSONWriter`) is a built-in hook that writes extracted data to a newline-delimited JSON file. This is useful for storing results in a structured format that can be easily processed later.
+
+```python
+from wxpath import hooks
+hooks.register(hooks.JSONLWriter)
+```
 
 ## CLI
 
 **wxpath** provides a command-line interface (CLI) to quickly execute wxpath expressions directly from the terminal.
 
 ```bash
-python -m wxpath.cli "\
+> python -m wxpath.cli --depth 1 "\
     url('https://en.wikipedia.org/wiki/Expression_language')\
-    ///main//a/url(@href)\
-    /map {\
-        'title'://h1[@id='firstHeading']//span[contains(@class, 'mw-page-title-main')]/text(),\
-        'short_description'://div[contains(@class, 'shortdescription')]/text(),\
-        'url'://link[@rel='canonical']/@href\
-        }\
-    " --depth 1
+    ///div[@id='mw-content-text'] \
+    //a/url(@href[starts-with(., '/wiki/') \
+        and not(matches(@href, '^(?:/wiki/)?(?:Wikipedia|File|Template|Special|Template_talk|Help):'))]) \
+    /map{ \
+        'title':(//span[contains(@class, 'mw-page-title-main')]/text())[1], \
+        'short_description':(//div[contains(@class, 'shortdescription')]/text())[1], \
+        'url':string(base-uri(.)), \
+        'backlink':wx:backlink(.), \
+        'depth':wx:depth(.) \
+        }"
 
-# ...
-# {"title": "Maintenance template removal", "shortdescription": "How-to-guide on addressing and removing maintenance templates", "url": "https://en.wikipedia.org/wiki/Help:Maintenance_template_removal"}
-# {"title": "Computer language", "shortdescription": "Formal language for communicating with a computer", "url": "https://en.wikipedia.org/wiki/Computer_language"}
-# {"title": "Machine-readable medium and data", "shortdescription": "Medium capable of storing data in a format readable by a machine", "url": "https://en.wikipedia.org/wiki/Machine-readable_medium_and_data"}
-# {"title": "Domain knowledge", "shortdescription": "Specialist knowledge within a specific field", "url": "https://en.wikipedia.org/wiki/Domain_knowledge"}
-# {"title": "Advanced Boolean Expression Language", "shortdescription": "Hardware description language and software", "url": "https://en.wikipedia.org/wiki/Advanced_Boolean_Expression_Language"}
-# {"title": "Data Analysis Expressions", "shortdescription": "Formula and data query language", "url": "https://en.wikipedia.org/wiki/Data_Analysis_Expressions"}
-# {"title": "Jakarta Expression Language", "shortdescription": "Computer programming language", "url": "https://en.wikipedia.org/wiki/Jakarta_Expression_Language"}
+{"title": "Computer language", "short_description": "Formal language for communicating with a computer", "url": "https://en.wikipedia.org/wiki/Computer_language", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
+{"title": "Machine-readable medium and data", "short_description": "Medium capable of storing data in a format readable by a machine", "url": "https://en.wikipedia.org/wiki/Machine_readable", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
+{"title": "Domain knowledge", "short_description": "Specialist knowledge within a specific field", "url": "https://en.wikipedia.org/wiki/Domain_knowledge", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
+{"title": "Advanced Boolean Expression Language", "short_description": "Hardware description language and software", "url": "https://en.wikipedia.org/wiki/Advanced_Boolean_Expression_Language", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
+{"title": "Data Analysis Expressions", "short_description": "Formula and data query language", "url": "https://en.wikipedia.org/wiki/Data_Analysis_Expressions", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
+{"title": "Jakarta Expression Language", "short_description": "Computer programming language", "url": "https://en.wikipedia.org/wiki/Jakarta_Expression_Language", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
+{"title": "Rights Expression Language", "short_description": [], "url": "https://en.wikipedia.org/wiki/Rights_Expression_Language", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
+{"title": "Computer science", "short_description": "Study of computation", "url": "https://en.wikipedia.org/wiki/Computer_science", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
 ```
 
 
@@ -234,6 +245,11 @@ MIT
     1. More precise webpage processing
     2. Finetuned crawling - we can direct an infinite crawl via xpath filtering and xpath operations, 
        however, more complex logic can be implemented to prune the search tree.
+    3. Add builtin hooks for common tasks like:
+        * Filtering out non-English pages
+        * Extracting metadata from pages
+        * JSON/YAML/XML output formatting
+        * LLM integration for content analysis
 6. Flesh out Requesting engine (IN PROGRESS - requires documentation):
     * Support for custom headers, cookies, etc.
     * Support for proxies
