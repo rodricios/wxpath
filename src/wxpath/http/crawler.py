@@ -1,36 +1,54 @@
 import asyncio, aiohttp, urllib.parse
+from functools import partial
 from collections import defaultdict
 from typing import Iterable, Callable, Awaitable
 
-from wxpath.logging_utils import get_logger
+from wxpath.util.logging import get_logger
+from wxpath.http.stats import build_stats, build_trace_config
+
 
 log = get_logger(__name__)
 
+HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
 
 class Crawler:
     def __init__(
         self,
         concurrency: int = 16,
-        per_host: int = 4,
+        # per_host: int = 4,
         timeout: int = 15,
         delay: float = 0,
         *,
         headers: dict[str, str] | None = None,
         proxies: dict[str, str] | None = None,
     ):
+        self.concurrency = concurrency
         self._sem_global = asyncio.Semaphore(concurrency)
-        self._sem_host  = defaultdict(lambda: asyncio.Semaphore(per_host))
+        # self._sem_host  = defaultdict(lambda: asyncio.Semaphore(per_host))
         self._timeout   = aiohttp.ClientTimeout(total=timeout)
+        self._connector = aiohttp.TCPConnector(limit=self.concurrency*2, ttl_dns_cache=300)
         self._delay     = delay
-        self._headers   = {"User-Agent": "mini-crawler"} | (headers or {})  # merge
+        self._headers   = HEADERS | (headers or {}) # merge headers
         self._proxies   = proxies or {}
         self._session: aiohttp.ClientSession | None = None
+        self._stats = build_stats()
+
+    def build_session(self):
+        trace_config = build_trace_config(self._stats)
+        return aiohttp.ClientSession(
+            headers=self._headers, 
+            timeout=self.timeout, 
+            connector=self._connector, 
+            trace_configs=[trace_config]
+        )
+
 
     async def __aenter__(self):
-        self._session = aiohttp.ClientSession(
-            headers=self._headers,
-            timeout=self._timeout,
-        )
+        # self._session = aiohttp.ClientSession(
+        #     headers=self._headers,
+        #     # timeout=self._timeout,
+        # )
+        self._session = self.build_session()
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -49,7 +67,7 @@ class Crawler:
         session: aiohttp.ClientSession,
     ):
         host = urllib.parse.urlsplit(url).hostname
-        async with self._sem_global, self._sem_host[host]:
+        async with self._sem_global: #, self._sem_host[host]:
             if self._delay:
                 await asyncio.sleep(self._delay)
 
@@ -74,10 +92,7 @@ class Crawler:
             await asyncio.gather(*(self._fetch(u, cb, self._session) for u in urls))
         else:
             # Fallback: ephemeral session for one-off runs
-            async with aiohttp.ClientSession(
-                headers=self._headers,
-                timeout=self._timeout,
-            ) as s:
+            async with self.build_session() as s:
                 await asyncio.gather(*(self._fetch(u, cb, s) for u in urls))
 
     async def run_async(

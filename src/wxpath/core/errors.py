@@ -6,7 +6,7 @@ from contextvars import ContextVar
 from contextlib import contextmanager
 
 
-from wxpath.logging_utils import get_logger
+from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
 

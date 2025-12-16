@@ -2,8 +2,8 @@ import pytest
 
 from tests.utils import MockCrawler, _generate_fake_fetch_html
 from wxpath import hooks
-from wxpath.core import parser, helpers, sync
-from wxpath.core import async_ as async_core
+from wxpath.core import parser, helpers
+from wxpath.core import engine as async_core
 
 
 HTML_A = b"""

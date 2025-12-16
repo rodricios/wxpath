@@ -2,9 +2,9 @@ import argparse
 import json
 
 from wxpath import hooks
-from wxpath.core.op_handlers import WxStr
-from wxpath.core.sync import parse_wxpath_expr
-from wxpath.core.async_ import wxpath_async_blocking_iter
+from wxpath.core.ops import WxStr
+from wxpath.core.parser import parse_wxpath_expr
+from wxpath.core.engine import wxpath_async_blocking_iter
 
 
 def _simplify(obj):

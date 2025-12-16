@@ -18,11 +18,8 @@ import wxpath
 #
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//main//a/@href"
 
-items = wxpath.core.wxpath(path_expr)
+items = wxpath.engine.wxpath_async_blocking(path_expr)
 
-# Use wxpath.core.wxpath_async_blocking[_iter] for concurrent requests
-# with much higher throughput (see below):
-items = wxpath.core.wxpath_async_blocking(path_expr)
 
 #### EXAMPLE 2 - Two-deep crawl and link extraction ##################
 #
@@ -45,7 +42,7 @@ path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///main//a/
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//main//a/@href)"
 
 # Modify (inclusive) max_depth to limit the BFS tree (crawl depth).
-items = wxpath.core.wxpath(path_expr, max_depth=1)
+items = wxpath.engine.wxpath_async_blocking(path_expr, max_depth=1)
 
 #### EXAMPLE 4 - Infinite crawl with field extraction ################
 #
@@ -65,12 +62,11 @@ path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
 
 # Under the hood of wxpath.core.wxpath, we generate `segments` list, 
 # revealing the operations executed to accomplish the crawl.
-segments = wxpath.core.parser.parse_wxpath_expr(path_expr); segments
-
-results = []
-for r in wxpath.core.evaluate_wxpath_bfs_iter(None, segments, max_depth=2):
-    print(r)
-    results.append(r)
+# >> segments = wxpath.core.parser.parse_wxpath_expr(path_expr); 
+# >> segments
+# [Segment(op='url', value='https://en.wikipedia.org/wiki/Expression_language'),
+#  Segment(op='url_inf', value='///url(//main//a/@href)'),
+#  Segment(op='xpath', value='/map {        \'title\':(//span[contains(@class, "mw-page-title-main")]/text())[1],         \'short_description\':(//div[contains(@class, "shortdescription")]/text())[1],        \'url\'://link[@rel=\'canonical\']/@href[1]    }')]
 ```
 
 ## XPath 3.1 By Default

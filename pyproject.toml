@@ -28,5 +28,12 @@ minversion = "6.0"
 addopts = "-ra -q"
 testpaths = ["tests"]
 
-[tool.setuptools.packages.find]
-include = ["wxpath"]
+[tool.setuptools]
+# This line tells Setuptools to look in 'src/' for the package 'wxpath'
+package-dir = {"" = "src"}
+# This automatically finds the 'wxpath' package inside 'src'
+# The result will be `wxpath`
+packages = ["wxpath"]
+
+# [tool.setuptools.packages.find]
+# include = ["wxpath"]

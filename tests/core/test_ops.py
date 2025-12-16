@@ -3,8 +3,8 @@ import pytest
 from lxml import html
 
 from wxpath.core.task import Task
-from wxpath.core import async_  # ensures patches (xpath3) are installed globally
-from wxpath.core import op_handlers as ops
+from wxpath.core import engine  # ensures patches (xpath3) are installed globally
+from wxpath.core import ops
 
 
 # ---------------------------------------------------------------------------

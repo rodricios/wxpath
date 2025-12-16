@@ -11,7 +11,7 @@ Write once:
             lang = elem.xpath('string(/html/@lang)').lower()[:2]
             return elem if lang in ("en", "") else None
 
-... and wxpath.core will call it automatically.
+... and wxpath.engine will call it automatically.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from typing import Protocol, List, Optional, Any, Iterable
 from lxml import html
 from elementpath.serialization import XPathMap, XPathNode
 
-from wxpath.logging_utils import get_logger
+from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
 
