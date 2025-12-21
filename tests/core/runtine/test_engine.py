@@ -14,10 +14,14 @@ from __future__ import annotations
 
 import pytest
 import asyncio
+from unittest.mock import patch
 
 from tests.utils import MockCrawler
+
 from wxpath.core import parser
-from wxpath.core.runtime import engine as engine
+from wxpath.core.runtime import engine
+from wxpath.http.client.response import Response
+from wxpath.http.client.request import Request
 
 
 def _generate_fake_fetch_html(pages: dict[str, bytes]):
@@ -564,6 +568,41 @@ def test_engine_run___crawl_inf_crawl_with_filter(monkeypatch): #infinite_crawl_
         'http://test/a.html',
         'http://test/a1.html'
     ]
+
+@pytest.mark.asyncio
+async def test_engine_does_not_hang_on_request_failure(monkeypatch):
+    """
+    Verify that when a request fails after all retries, the engine
+    receives an error Response, yields an error result, and shuts down cleanly
+    instead of hanging.
+    """
+    failing_url = "http://will-always-fail.com"
+    expression = f"url('{failing_url}')"
+
+    eng = engine.WXPathEngine(concurrency=1)
+
+    # We patch the crawler's _fetch_one method to simulate a failed request
+    # that has exhausted all retries. The crawler should return a Response
+    # with an error, not raise an exception.
+    error = RuntimeError("All retries failed")
+    
+    async def mock_fetch_one(self, req: Request):
+        if req.url == failing_url:
+            # Simulate crawler returning an error response after retries
+            return Response(request=req, status=0, body=b"", error=error)
+        # For any other URL, we can return a success to not interfere
+        return Response(request=req, status=200, body=b"<html></html>")
+
+    with patch('wxpath.http.client.crawler.Crawler._fetch_one', new=mock_fetch_one):
+        results = []
+        async for result in eng.run(expression, max_depth=0):
+            results.append(result)
+
+    assert len(results) == 1
+    assert results[0] == {'error': str(error), 'url': failing_url}
+
+    # The fact that the test completes without timing out proves the engine did not hang.
+
 
 ## Obsolete
 # def test_engine_run__object_extraction(monkeypatch):

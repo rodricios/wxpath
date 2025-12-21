@@ -131,6 +131,12 @@ class WXPathEngine(Engine):
                     log.warning(f"Got unexpected response from {resp.request.url}")
                     continue
 
+                if resp.error:
+                    yield self.post_extract_hooks(
+                        {"error": str(resp.error), "url": resp.request.url}
+                    )
+                    continue
+
                 if resp.status != 200 or not resp.body:
                     continue
 

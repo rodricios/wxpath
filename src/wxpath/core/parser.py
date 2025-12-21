@@ -8,7 +8,14 @@ This module contains mainly two kinds of functions:
 import re
 from typing import NamedTuple
 
-from enum import StrEnum
+
+try:
+    from enum import StrEnum
+except ImportError:
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        pass
 
 class Segment(NamedTuple):
     op: str
@@ -20,9 +27,8 @@ class OPS(StrEnum):
     URL_INF = "url_inf"
     URL_INF_AND_XPATH = "url_inf_and_xpath"
     XPATH = "xpath"
-    OBJECT = "object"
+    OBJECT = "object" # Deprecated
     INF_XPATH = "inf_xpath"
-
 
 
 def _url_inf_filter_expr(url_op_and_arg):
@@ -154,27 +160,27 @@ def parse_wxpath_expr(path_expr):
     
     # Collapes inf_xpath segment and the succeeding url_from_attr segment into a single url_inf segment
     for i in range(len(segments) - 1):
-        if segments[i][0] == 'inf_xpath' and segments[i + 1][0] == 'url_from_attr':
+        if segments[i][0] == OPS.INF_XPATH and segments[i + 1][0] == OPS.URL_FROM_ATTR:
             inf_xpath_value = segments[i][1]
             url_from_attr_value = _extract_arg_from_url_xpath_op(segments[i + 1][1])
             url_from_attr_traveral_fragment = segments[i + 1][1].split('url')[0]
             segments[i] = Segment(
-                'url_inf', 
+                OPS.URL_INF, 
                 f'///url({inf_xpath_value}{url_from_attr_traveral_fragment}{url_from_attr_value})'
             )
             segments.pop(i + 1)
     
     #### RAISE ERRORS FROM INVALID SEGMENTS ####
     # Raises if multiple ///url() are present
-    if len([op for op, val in segments if op == 'url_inf']) > 1:
+    if len([op for op, val in segments if op == OPS.URL_INF]) > 1:
         raise ValueError("Only one ///url() is allowed")
     
     # Raises if multiple url() are present
-    if len([op for op, val in segments if op == 'url']) > 1:
+    if len([op for op, _ in segments if op == OPS.URL]) > 1:
         raise ValueError("Only one url() is allowed")
     
     # Raises when expr starts with //url(@<attr>)
-    if segments and segments[0][0] == 'url_from_attr':
+    if segments and segments[0][0] == OPS.URL_FROM_ATTR:
         raise ValueError("Path expr cannot start with [//]url(@<attr>)")
     
     return segments

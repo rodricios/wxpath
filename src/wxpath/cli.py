@@ -41,7 +41,6 @@ def main():
     parser.add_argument("--concurrency", type=int, default=16, help="Number of concurrent fetches")
     parser.add_argument("--concurrency-per-host", type=int, default=8, help="Number of concurrent fetches per host")
     parser.add_argument("--fetch-batch-size", type=int, default=32, help="Batch size")
-    parser.add_argument("--dedupe-urls-per-page", action="store_true", default=True, help="Dedupe URLs on a per-page basis")
 
     args = parser.parse_args()
 

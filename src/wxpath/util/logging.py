@@ -2,9 +2,6 @@ import logging
 from logging.config import dictConfig
 from typing import Any, Mapping
 
-import logging
-from logging.config import dictConfig
-from typing import Any, Mapping
 
 class KeyValueFormatter(logging.Formatter):
     """

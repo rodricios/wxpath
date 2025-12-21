@@ -157,7 +157,9 @@ class Crawler:
                 if self.retry_policy.should_retry(req, exception=exc):
                     await self._retry(req)
                     return None
-                raise
+                
+                log.error("request failed", extra={"url": req.url}, exc_info=exc)
+                return Response(req, 0, b"", error=exc)
 
     async def _retry(self, req: Request):
         req.retries += 1
