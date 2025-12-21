@@ -24,7 +24,7 @@ class Engine:
                 body
             )
             if not body:
-                log.debug(f"hook {hook.__name__} dropped {task.url}")
+                log.debug(f"hook {type(hook).__name__} dropped {task.url}")
                 break
         return body
     
@@ -35,16 +35,15 @@ class Engine:
                 elem,
             )
             if elem is None:
-                log.debug(f"hook {hook.__name__} dropped {task.url}")
+                log.debug(f"hook {type(hook).__name__} dropped {task.url}")
                 break
         return elem
     
-
     def post_extract_hooks(self, value):
         for hook in get_hooks():
-            value = getattr(hook, "post_extract", lambda _, v: v)(value)
+            value = getattr(hook, "post_extract", lambda v: v)(value)
             if value is None:
-                log.debug(f"hook {hook.__name__} dropped value")
+                log.debug(f"hook {type(hook).__name__} dropped value")
                 break
         return value
 
@@ -78,18 +77,6 @@ class WXPathEngine(Engine):
         # self.fetched_urls: set[str] = set()   # actual HTTP fetches
         self.crawler = Crawler(concurrency=self.concurrency, per_host=self.per_host)
         # self.dedupe_urls_per_page = dedupe_urls_per_page
-
-    async def _fetch_many(self, crawler: Crawler, urls: Iterable[str]) -> dict[str, str]:
-        responses: dict[str, str] = {}
-
-        requests: list[Request] = [Request(url=u) for u in urls]
-
-        async for resp in crawler.fetch(requests):
-            breakpoint()
-            if resp.status == 200 and resp.body:
-                responses[resp.request.url] = resp.body
-
-        return responses
 
     async def run(self, expression: str, max_depth: int):
         segments = parse_wxpath_expr(expression)
