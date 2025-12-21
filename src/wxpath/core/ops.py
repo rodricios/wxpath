@@ -1,33 +1,31 @@
 """
-`ops` for "operations". This module contains functions (operators) for handling each segment of a wxpath expression.
+`ops` for "operations". This module contains side-effect-free functions (operators) 
+for handling each segment of a wxpath expression.
 """
 import requests
-from typing import Callable
+from typing import Callable, Iterable
+from lxml import html
 
-from wxpath.hooks import get_hooks
-from wxpath.core.models import CrawlIntent, DataIntent, ProcessIntent, ExtractIntent, InfiniteCrawlIntent
-from wxpath.util.logging import get_logger
-from wxpath.core.helpers import (
-    _ctx, 
-    _get_absolute_links_from_elem_and_xpath
+from wxpath.core.models import (
+    Intent,
+    CrawlIntent, 
+    DataIntent, 
+    ProcessIntent, 
+    ExtractIntent, 
+    InfiniteCrawlIntent
 )
+from wxpath.util.logging import get_logger
+from wxpath.core.dom import get_absolute_links_from_elem_and_xpath
 from wxpath.core.parser import (
     _parse_object_mapping, 
     _extract_arg_from_url_xpath_op, 
     _url_inf_filter_expr,
-    parse_wxpath_expr
+    parse_wxpath_expr,
+    OPS,
+    Segment
 )
 
 log = get_logger(__name__)
-
-
-class OPS:
-    URL = "url"
-    URL_FROM_ATTR = "url_from_attr"
-    URL_INF = "url_inf"
-    URL_INF_AND_XPATH = "url_inf_and_xpath"
-    XPATH = "xpath"
-    OBJECT = "object"
 
 
 class WxStr(str):
@@ -46,21 +44,21 @@ class WxStr(str):
 
 HANDLERS: dict[str, Callable] = {}
 
-def _op(name):
+def _op(name: OPS):
     def reg(fn): 
         HANDLERS[name] = fn
         return fn
     return reg
 
 
-def get_operator(name) -> Callable:
+def get_operator(name: OPS) -> Callable[[html.HtmlElement, list[Segment], int], Iterable[Intent]]:
     if name not in HANDLERS:
         raise ValueError(f"Unknown operation: {name}")
     return HANDLERS[name]
 
 
 @_op(OPS.URL_FROM_ATTR)
-def _handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, **kwargs):
+def _handle_url_from_attr__no_return(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[CrawlIntent]:
     """
     Handles the `[/|//]url(@<attr>)` (e.g., `...//url(@href)`) segment of a wxpath expression
     """
@@ -77,10 +75,9 @@ def _handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, **kwa
 
     log.debug("path expression", extra={"depth": curr_depth, "op": op, "path_exp": _path_exp})
 
-    urls = _get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
+    urls = get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
 
-    if kwargs.get('dedupe_urls_per_page', False):
-        urls = list(dict.fromkeys(urls))
+    urls = list(dict.fromkeys(urls))
 
     log.debug("absolute links", extra={"depth": curr_depth, "op": op, "url_count": len(urls)})
 
@@ -94,7 +91,7 @@ def _handle_url_from_attr__no_return(curr_elem, curr_segments, curr_depth, **kwa
 
 
 @_op(OPS.URL_INF)
-def _handle_url_inf__no_return(curr_elem, curr_segments, curr_depth, **kwargs):
+def _handle_url_inf__no_return(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[CrawlIntent]:
     """
     Handles the ///url() segment of a wxpath expression. This operation is also 
     generated internally by the parser when a `///<xpath>/[/]url()` segment is
@@ -107,10 +104,9 @@ def _handle_url_inf__no_return(curr_elem, curr_segments, curr_depth, **kwargs):
 
     _path_exp = _url_inf_filter_expr(value)
 
-    urls = _get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
+    urls = get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
     
-    if kwargs.get('dedupe_urls_per_page', False):
-        urls = list(dict.fromkeys(urls))
+    urls = list(dict.fromkeys(urls))
 
     log.debug("found urls", extra={"depth": curr_depth, "op": op, "url": getattr(curr_elem, 'base_url', None), "url_count": len(urls)})
 
@@ -124,7 +120,7 @@ def _handle_url_inf__no_return(curr_elem, curr_segments, curr_depth, **kwargs):
 
 
 @_op(OPS.URL_INF_AND_XPATH)
-def _handle_url_inf_and_xpath__no_return(curr_elem, curr_segments, curr_depth, **kwargs):
+def _handle_url_inf_and_xpath__no_return(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[DataIntent | ProcessIntent | InfiniteCrawlIntent]:
     """
     This is an operation that is generated internally by the parser. There is
     no explicit wxpath expression that generates this operation.
@@ -135,8 +131,6 @@ def _handle_url_inf_and_xpath__no_return(curr_elem, curr_segments, curr_depth, *
     log.debug("handling url inf and xpath", extra={"curr_segments": curr_segments, "depth": curr_depth, "op": op, "url": url, "prev_op_value": prev_op_value, "curr_elem": curr_elem, "curr_elem.base_url": getattr(curr_elem, 'base_url', None)})
 
     try:
-        # new_elem = _load_page_as_element(url, backlink, curr_depth, seen_urls)
-        
         if curr_elem is None:
             raise ValueError("Missing element when op is 'url_inf_and_xpath'.")
 
@@ -157,7 +151,7 @@ def _handle_url_inf_and_xpath__no_return(curr_elem, curr_segments, curr_depth, *
 
 
 @_op(OPS.XPATH)
-def _handle_xpath(curr_elem, curr_segments, curr_depth, **kwargs):
+def _handle_xpath(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[DataIntent | ProcessIntent]:
     """
     Handles the [/|//]<xpath> segment of a wxpath expression. This is a plain XPath expression.
     Also handles wxpath-specific macro expansions like wx:backlink() or wx:depth().
@@ -185,7 +179,6 @@ def _handle_xpath(curr_elem, curr_segments, curr_depth, **kwargs):
             yield DataIntent(value=WxStr(elem, base_url=base_url, depth=curr_depth) if isinstance(elem, str) else elem)
         else:
             yield ProcessIntent(elem=elem, next_segments=curr_segments[1:])
-
 
 
 # @_op(OPS.OBJECT)

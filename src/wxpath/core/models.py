@@ -26,6 +26,7 @@ class CrawlTask:
     def __iter__(self):
         return iter((self.elem, self.segments, self.depth, self.backlink))
 
+
 @dataclass(slots=True)
 class Intent:
     pass

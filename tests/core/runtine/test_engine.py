@@ -17,7 +17,7 @@ import asyncio
 
 from tests.utils import MockCrawler
 from wxpath.core import parser
-from wxpath.core import engine as engine
+from wxpath.core.runtime import engine as engine
 
 
 def _generate_fake_fetch_html(pages: dict[str, bytes]):
@@ -297,8 +297,8 @@ def test_engine_run__infinite_crawl_max_depth_uncapped(monkeypatch):
         """,
         'http://test/a.html': b"<html><body><a href='a1.html'>L2</a></body></html>",
         'http://test/b.html': b"<html><body><a href='b1.html'>L2</a></body></html>",
-        'http://test/a1.html': b"<html><body><a href='a2.html'>L3</a></body></html>",
-        'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
+        'http://test/a1.html': b"<html><body></body></html>",
+        'http://test/b1.html': b"<html><body></body></html>",
     }
     
     expr = "url('http://test/')///url(@href)"
@@ -446,7 +446,7 @@ def test_engine_run__crawl__inf_crawl__query__dupe_link__dedupe_urls_per_depth_T
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32, dedupe_urls_per_page=True)
+    eng = engine.WXPathEngine(concurrency=32)
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=2)
@@ -458,44 +458,6 @@ def test_engine_run__crawl__inf_crawl__query__dupe_link__dedupe_urls_per_depth_T
         'b1.html',
         'a2.html',
         'b2.html',
-    ]
-
-
-def test_engine_run__crawl__inf_crawl__query__dupe_link__dedupe_urls_per_depth_False__max_depth_2(monkeypatch):
-    pages = {
-        'http://test/': b"""
-            <html><body>
-              <a href="a.html">A</a>
-              <a href="b.html">B</a>
-              <a href="a.html">A dupe</a>
-            </body></html>
-        """,
-        'http://test/a.html': b"<html><body><a href='a1.html'>L2</a></body></html>",
-        'http://test/b.html': b"<html><body><a href='b1.html'>L2</a></body></html>",
-        'http://test/a1.html': b"<html><body><a href='a2.html'>L3</a></body></html>",
-        'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
-    }
-    expr = "url('http://test/')///url(@href)//a/@href"
-    
-    monkeypatch.setattr(
-        engine,
-        "Crawler",
-        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
-    )
-    eng = engine.WXPathEngine(concurrency=32, dedupe_urls_per_page=False)
-    results = asyncio.run(
-        _collect_async(
-            eng.run(expr, max_depth=2)
-        )
-    )
-    assert len(results) == 6
-    assert results == [
-        'a1.html',
-        'b1.html',
-        'a1.html',
-        'a2.html',
-        'b2.html',
-        'a2.html',
     ]
 
 
@@ -603,7 +565,7 @@ def test_engine_run___crawl_inf_crawl_with_filter(monkeypatch): #infinite_crawl_
         'http://test/a1.html'
     ]
 
-
+## Obsolete
 # def test_engine_run__object_extraction(monkeypatch):
 #     pages = {
 #         'http://test/': b"""

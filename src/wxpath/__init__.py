@@ -1,4 +1,4 @@
-from .core.engine import wxpath_async, wxpath_async_blocking, wxpath_async_blocking_iter
+from .core.runtime.engine import wxpath_async, wxpath_async_blocking, wxpath_async_blocking_iter
 from .util.logging import configure_logging
 
 __all__ = [

@@ -2,7 +2,7 @@ import asyncio
 
 from types import SimpleNamespace
 from typing import Iterable
-
+from wxpath.http.client.response import Response
 
 class MockCrawler:
     """
@@ -12,16 +12,32 @@ class MockCrawler:
     bodies to the callback without performing any network requests.
     """
     def __init__(self, *args, pages=None, **kwargs):
-        self.pages = pages or {}
+        self.pages = pages
+        self._queue = asyncio.Queue()
 
     async def __aenter__(self):
-        # No-op, but mirrors the real Crawler API
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
-        # No-op
-        return False
+    async def __aexit__(self, *exc):
+        pass
 
+    def submit(self, request):
+        body = self.pages.get(request.url)
+        if body is not None:
+            resp = Response(
+                request=request,
+                status=200,
+                body=body,
+                headers={}
+            )
+            self._queue.put_nowait(resp)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        return await self._queue.get()
+    
     async def run_async(self, urls, cb):
         # Support sync or async callback
         if not asyncio.iscoroutinefunction(cb):

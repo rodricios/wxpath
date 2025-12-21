@@ -18,7 +18,7 @@ import wxpath
 #
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//main//a/@href"
 
-items = wxpath.engine.wxpath_async_blocking(path_expr)
+items = wxpath.wxpath_async_blocking(path_expr)
 
 
 #### EXAMPLE 2 - Two-deep crawl and link extraction ##################
@@ -42,7 +42,7 @@ path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///main//a/
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//main//a/@href)"
 
 # Modify (inclusive) max_depth to limit the BFS tree (crawl depth).
-items = wxpath.engine.wxpath_async_blocking(path_expr, max_depth=1)
+items = wxpath.wxpath_async_blocking(path_expr, max_depth=1)
 
 #### EXAMPLE 4 - Infinite crawl with field extraction ################
 #
@@ -50,12 +50,15 @@ items = wxpath.engine.wxpath_async_blocking(path_expr, max_depth=1)
 # childs' child links (recursively) and then, for each child link 
 # crawled, extracts objects with the named fields as a dict.
 #
-path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
+path_expr = """
+    url('https://en.wikipedia.org/wiki/Expression_language')
      ///main//a/url(@href)
      /map {
         'title':(//span[contains(@class, "mw-page-title-main")]/text())[1], 
         'short_description':(//div[contains(@class, "shortdescription")]/text())[1],
-        'url'://link[@rel='canonical']/@href[1]
+        'url'://link[@rel='canonical']/@href[1],
+        'backlink':wx:backlink(.),
+        'depth':wx:depth(.)
     }
 """
 
@@ -71,7 +74,7 @@ path_expr = """url('https://en.wikipedia.org/wiki/Expression_language')
 
 ## XPath 3.1 By Default
 
-**wxpath** uses the `elementpath` library to provide XPath 3.1 support, enabling advanced XPath features like **maps**, **arrays**, and more. This allows you to write more expressive and powerful XPath queries.
+**wxpath** uses the `elementpath` library to provide XPath 3.1 support, enabling advanced XPath features like **maps**, **arrays**, and more. This allows you to write more powerful XPath queries.
 
 ```python
 path_expr = """
@@ -109,7 +112,7 @@ pip install -e ".[async]" # or pip install aiohttp
 
 ```python
 import asyncio
-from wxpath.core.async_ import wxpath_async
+from wxpath import wxpath_async
 
 items = []
 
@@ -127,7 +130,7 @@ asyncio.run(main())
 **wxpath** also supports concurrent requests using an asyncio-in-sync pattern, allowing you to crawl multiple pages concurrently while maintaining the simplicity of synchronous code. This is particularly useful for large-scale crawls in strictly synchronous execution environments (i.e., not inside an `asyncio` event loop) where performance is a concern.
 
 ```python
-from wxpath.core.async_ import wxpath_async_blocking_iter
+from wxpath import wxpath_async_blocking_iter
 
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(@href[starts-with(., '/wiki/')])//a/@href"
 items = list(wxpath_async_blocking_iter(path_expr, max_depth=1))

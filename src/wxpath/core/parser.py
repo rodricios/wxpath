@@ -8,10 +8,21 @@ This module contains mainly two kinds of functions:
 import re
 from typing import NamedTuple
 
+from enum import StrEnum
 
 class Segment(NamedTuple):
     op: str
     value: str
+
+class OPS(StrEnum):
+    URL = "url"
+    URL_FROM_ATTR = "url_from_attr"
+    URL_INF = "url_inf"
+    URL_INF_AND_XPATH = "url_inf_and_xpath"
+    XPATH = "xpath"
+    OBJECT = "object"
+    INF_XPATH = "inf_xpath"
+
 
 
 def _url_inf_filter_expr(url_op_and_arg):
@@ -122,11 +133,11 @@ def parse_wxpath_expr(path_expr):
         if not s:
             continue
         if s.startswith('url("') or s.startswith("url('"):
-            segments.append(Segment('url', _extract_arg_from_url_xpath_op(s)))
+            segments.append(Segment(OPS.URL, _extract_arg_from_url_xpath_op(s)))
         elif s.startswith('/url(@') or s.startswith('//url(@'):
-            segments.append(Segment('url_from_attr', s))
+            segments.append(Segment(OPS.URL_FROM_ATTR, s))
         elif s.startswith('///url('):
-            segments.append(Segment('url_inf', s))
+            segments.append(Segment(OPS.URL_INF, s))
         elif s.startswith('/url("') or s.startswith('//url("'):  # RAISE ERRORS FROM INVALID SEGMENTS
             raise ValueError(f"url() segment cannot have fixed-length argument and preceding navigation slashes (/|//): {s}")
         elif s.startswith("/url('") or s.startswith("//url('"):  # RAISE ERRORS FROM INVALID SEGMENTS
@@ -135,11 +146,11 @@ def parse_wxpath_expr(path_expr):
             # Reaching this presumes an unsupported value
             raise ValueError(f"Unsupported url() segment: {s}")
         elif s.startswith('///'):
-            segments.append(Segment('inf_xpath', "//" + s[3:]))
+            segments.append(Segment(OPS.INF_XPATH, "//" + s[3:]))
         # elif s.startswith('/{') or s.startswith('{'):
         #     parsed.append(('object', s))
         else:
-            segments.append(Segment('xpath', s))
+            segments.append(Segment(OPS.XPATH, s))
     
     # Collapes inf_xpath segment and the succeeding url_from_attr segment into a single url_inf segment
     for i in range(len(segments) - 1):
