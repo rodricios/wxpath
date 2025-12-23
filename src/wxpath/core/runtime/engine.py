@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from collections import deque
 from typing import AsyncGenerator, Any, Iterable
 from lxml.html import HtmlElement
@@ -68,15 +69,12 @@ class WXPathEngine(Engine):
             concurrency: int = 16, 
             per_host: int = 8,
             fetch_batch_size: int = 32, 
-            # dedupe_urls_per_page: bool = True
         ):
         self.concurrency = concurrency
         self.per_host = per_host
         self.fetch_batch_size = fetch_batch_size
         self.seen_urls: set[str] = set()      # semantic traversal
-        # self.fetched_urls: set[str] = set()   # actual HTTP fetches
         self.crawler = Crawler(concurrency=self.concurrency, per_host=self.per_host)
-        # self.dedupe_urls_per_page = dedupe_urls_per_page
 
     async def run(self, expression: str, max_depth: int):
         segments = parse_wxpath_expr(expression)
@@ -88,7 +86,7 @@ class WXPathEngine(Engine):
         queue: asyncio.Queue[CrawlTask] = asyncio.Queue()
         inflight: dict[str, CrawlTask] = {}
 
-        # Seed the queue with the root task
+        # Seed the queue
         await queue.put(
             CrawlTask(
                 elem=None,
@@ -99,42 +97,35 @@ class WXPathEngine(Engine):
             )
         )
 
-        async def producer(crawler: Crawler):
-            while True:
-                try:
-                    task = await asyncio.wait_for(queue.get(), timeout=0.1)
-                except asyncio.TimeoutError:
-                    if not inflight and queue.empty():
+        async with self.crawler as crawler:
+            async def submitter():
+                while True:
+                    task = await queue.get()
+
+                    if task is None:
                         break
-                    continue
 
-                if task.url in inflight or task.url in self.seen_urls:
+                    if task.url in self.seen_urls or task.url in inflight:
+                        queue.task_done()
+                        continue
+
+                    inflight[task.url] = task
+                    crawler.submit(Request(task.url))
                     queue.task_done()
-                    continue
 
-                crawler.submit(Request(task.url))
-                inflight[task.url] = task
-                queue.task_done()
+            submit_task = asyncio.create_task(submitter())
 
-        async def consumer(crawler: Crawler):
-            while True:
-                if not inflight and queue.empty():
-                    break
-
-                try:
-                    resp = await asyncio.wait_for(crawler.__aiter__().__anext__(), timeout=0.5)
-                except asyncio.TimeoutError:
-                    continue
-
+            async for resp in crawler:
                 task = inflight.pop(resp.request.url, None)
-                if not task:
+
+                # Mark URL as seen immediately
+                self.seen_urls.add(resp.request.url)
+
+                if task is None:
                     log.warning(f"Got unexpected response from {resp.request.url}")
                     continue
 
                 if resp.error:
-                    yield self.post_extract_hooks(
-                        {"error": str(resp.error), "url": resp.request.url}
-                    )
                     continue
 
                 if resp.status != 200 or not resp.body:
@@ -144,12 +135,17 @@ class WXPathEngine(Engine):
                 if not body:
                     continue
 
-                elem = parse_html(body, base_url=task.url, backlink=task.backlink, depth=task.depth)
+                elem = parse_html(
+                    body,
+                    base_url=task.url,
+                    backlink=task.backlink,
+                    depth=task.depth,
+                )
+
                 elem = self.post_parse_hooks(elem, task)
                 if elem is None:
                     continue
 
-                # Enqueue new tasks discovered from this element
                 if task.segments:
                     async for output in self._process_pipeline(
                         task=task,
@@ -162,13 +158,13 @@ class WXPathEngine(Engine):
                 else:
                     yield self.post_extract_hooks(elem)
 
-                self.seen_urls.add(task.url)
+                # Termination condition
+                if queue.empty() and not inflight:
+                    break
 
-        async with self.crawler as crawler:
-            prod_task = asyncio.create_task(producer(crawler))
-            async for item in consumer(crawler):
-                yield item
-            await prod_task
+            submit_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await submit_task
 
     async def _process_pipeline(
         self,
@@ -180,7 +176,6 @@ class WXPathEngine(Engine):
     ):
         mini_queue: deque[(HtmlElement, list[tuple[str, str]])] = deque([(elem, task.segments)])
 
-        # breakpoint()
         while mini_queue:
             elem, segments = mini_queue.popleft()
             

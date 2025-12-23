@@ -183,7 +183,7 @@ hooks.register(hooks.JSONLWriter)
 **wxpath** provides a command-line interface (CLI) to quickly execute wxpath expressions directly from the terminal.
 
 ```bash
-> python -m wxpath.cli --depth 1 "\
+> wxpath --depth 1 "\
     url('https://en.wikipedia.org/wiki/Expression_language')\
     ///div[@id='mw-content-text'] \
     //a/url(@href[starts-with(., '/wiki/') \

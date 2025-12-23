@@ -74,7 +74,6 @@ def test_url_inf_and_xpath_yields_data_and_infinite(monkeypatch):
     value = ("http://test/a.html", "//main//a/@href")
     results = list(op(elem, [("url_inf_and_xpath", value)] + rest_segments, 0))
 
-    # breakpoint()
     assert any(isinstance(r, (DataIntent, ProcessIntent, InfiniteCrawlIntent)) for r in results)
 
 

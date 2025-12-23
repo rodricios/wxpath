@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typing import Iterable
 from wxpath.http.client.response import Response
 
+
 class MockCrawler:
     """
     Drop-in replacement for `wxpath.crawler.Crawler`.
@@ -23,14 +24,13 @@ class MockCrawler:
 
     def submit(self, request):
         body = self.pages.get(request.url)
-        if body is not None:
-            resp = Response(
-                request=request,
-                status=200,
-                body=body,
-                headers={}
-            )
-            self._queue.put_nowait(resp)
+        resp = Response(
+            request=request,
+            status=200,
+            body=body,
+            headers={}
+        )
+        self._queue.put_nowait(resp)
 
     def __aiter__(self):
         return self

@@ -107,7 +107,6 @@ def pipe_post_extract(gen_func):
     """
     @functools.wraps(gen_func)
     def wrapper(*args, **kwargs) -> Generator:
-        # breakpoint()
         for item in gen_func(*args, **kwargs):
             for hook in iter_post_extract_hooks():
                 item = hook.post_extract(item)
