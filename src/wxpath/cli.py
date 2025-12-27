@@ -1,10 +1,11 @@
 import argparse
 import json
+import sys
 
-from wxpath import hooks
-from wxpath.core.op_handlers import WxStr
-from wxpath.core.sync import parse_wxpath_expr
-from wxpath.core.async_ import wxpath_async_blocking_iter
+from wxpath.hooks import builtin # load default hooks
+from wxpath.core.ops import WxStr
+from wxpath.core.parser import parse_wxpath_expr
+from wxpath.core.runtime.engine import wxpath_async_blocking_iter, WXPathEngine
 
 
 def _simplify(obj):
@@ -37,6 +38,10 @@ def main():
     # verbose
     parser.add_argument("--verbose", action="store_true", help="Verbose mode")
     
+    parser.add_argument("--concurrency", type=int, default=16, help="Number of concurrent fetches")
+    parser.add_argument("--concurrency-per-host", type=int, default=8, help="Number of concurrent fetches per host")
+    parser.add_argument("--fetch-batch-size", type=int, default=32, help="Batch size")
+
     args = parser.parse_args()
 
     if args.verbose:
@@ -47,9 +52,17 @@ def main():
         from wxpath import configure_logging, logging
         configure_logging(logging.DEBUG)
 
-    for r in wxpath_async_blocking_iter(args.expression, args.depth):
-        clean = _simplify(r)
-        print(json.dumps(clean, ensure_ascii=False))
+    engine = WXPathEngine(
+        concurrency=args.concurrency,
+        per_host=args.concurrency_per_host,
+        fetch_batch_size=args.fetch_batch_size
+    )
+    try:
+        for r in wxpath_async_blocking_iter(args.expression, args.depth, engine):
+            clean = _simplify(r)
+            print(json.dumps(clean, ensure_ascii=False), flush=True)
+    except BrokenPipeError:
+        sys.exit(0)
 
 
 if __name__ == "__main__":

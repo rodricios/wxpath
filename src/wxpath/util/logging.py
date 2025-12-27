@@ -3,22 +3,49 @@ from logging.config import dictConfig
 from typing import Any, Mapping
 
 
+class KeyValueFormatter(logging.Formatter):
+    """
+    Formatter that automatically renders any 'extra' context added to the record
+    as key=value pairs at the end of the log line.
+    """
+    # Reserved keys that already exist in LogRecord and shouldn't be printed again
+    _RESERVED = {
+        'args', 'asctime', 'created', 'exc_info', 'exc_text', 'filename',
+        'funcName', 'levelname', 'levelno', 'lineno', 'message', 'module',
+        'msecs', 'msg', 'name', 'pathname', 'process', 'processName',
+        'relativeCreated', 'stack_info', 'thread', 'threadName', 'taskName'
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        # 1. Format the standard message first
+        s = super().format(record)
+        
+        # 2. Find all 'extra' keys
+        extras = {k: v for k, v in record.__dict__.items() if k not in self._RESERVED}
+        
+        # 3. Append them as key=value
+        if extras:
+            # Sort for deterministic logs
+            context_str = " ".join(f"{k}={v}" for k, v in sorted(extras.items()))
+            s = f"{s} | {context_str}"
+            
+        return s
+
+
 _DEFAULT_LOGGING_CONF = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "plain": {
-            "format": (
-                "%(asctime)s [%(levelname).1s] "
-                "%(name)s | %(funcName)s | "
-                "%(message)s | depth=%(depth)s op=%(op)s url=%(url)s"
-            )
+        "kv": {
+            # Note: We use the class path to our custom class
+            "()": KeyValueFormatter, 
+            "format": "%(asctime)s [%(levelname).1s] %(name)s | %(funcName)s | %(message)s"
         }
     },
     "handlers": {
         "stderr": {
             "class": "logging.StreamHandler",
-            "formatter": "plain",
+            "formatter": "kv",
         }
     },
     "loggers": {
