@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import contextlib
 from collections import deque
 from typing import AsyncGenerator, Any, Iterable
@@ -18,31 +19,49 @@ log = get_logger(__name__)
 
 
 class Engine:
-    def post_fetch_hooks(self, body, task):
+    async def post_fetch_hooks(self, body, task):
         for hook in get_hooks():
-            body = getattr(hook, "post_fetch", lambda _, b: b)(
-                FetchContext(task.url, task.backlink, task.depth, task.segments), 
-                body
-            )
+            hook_method = getattr(hook, "post_fetch", lambda _, b: b)
+            if inspect.iscoroutinefunction(hook_method):
+                body = await hook_method(
+                    FetchContext(task.url, task.backlink, task.depth, task.segments), 
+                    body
+                )
+            else:
+                body = hook_method(
+                    FetchContext(task.url, task.backlink, task.depth, task.segments), 
+                    body
+                )
             if not body:
                 log.debug(f"hook {type(hook).__name__} dropped {task.url}")
                 break
         return body
     
-    def post_parse_hooks(self, elem, task):
+    async def post_parse_hooks(self, elem, task):
         for hook in get_hooks():
-            elem = getattr(hook, "post_parse", lambda _, e: e)(
-                FetchContext(url=task.url, backlink=task.backlink, depth=task.depth, segments=task.segments),
-                elem,
-            )
+            hook_method = getattr(hook, "post_parse", lambda _, e: e)
+            if inspect.iscoroutinefunction(hook_method):
+                elem = await hook_method(
+                    FetchContext(url=task.url, backlink=task.backlink, depth=task.depth, segments=task.segments),
+                    elem,
+                )
+            else:
+                elem = hook_method(
+                    FetchContext(url=task.url, backlink=task.backlink, depth=task.depth, segments=task.segments),
+                    elem,
+                )
             if elem is None:
                 log.debug(f"hook {type(hook).__name__} dropped {task.url}")
                 break
         return elem
     
-    def post_extract_hooks(self, value):
+    async def post_extract_hooks(self, value):
         for hook in get_hooks():
-            value = getattr(hook, "post_extract", lambda v: v)(value)
+            hook_method = getattr(hook, "post_extract", lambda v: v)
+            if inspect.iscoroutinefunction(hook_method):
+                value = await hook_method(value)
+            else:
+                value = hook_method(value)
             if value is None:
                 log.debug(f"hook {type(hook).__name__} dropped value")
                 break
@@ -149,7 +168,7 @@ class WXPathEngine(Engine):
                         break
                     continue
 
-                body = self.post_fetch_hooks(resp.body, task)
+                body = await self.post_fetch_hooks(resp.body, task)
                 if not body:
                     if is_terminal():
                         break
@@ -162,7 +181,7 @@ class WXPathEngine(Engine):
                     depth=task.depth,
                 )
 
-                elem = self.post_parse_hooks(elem, task)
+                elem = await self.post_parse_hooks(elem, task)
                 if elem is None:
                     if is_terminal():
                         break
@@ -176,9 +195,10 @@ class WXPathEngine(Engine):
                         max_depth=max_depth,
                         queue=queue,
                     ):
-                        yield self.post_extract_hooks(output)
+
+                        yield await self.post_extract_hooks(output)
                 else:
-                    yield self.post_extract_hooks(elem)
+                    yield await self.post_extract_hooks(elem)
 
                 # Termination condition
                 if is_terminal():
