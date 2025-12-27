@@ -4,6 +4,7 @@ import time
 import urllib.parse
 from collections import defaultdict
 from typing import AsyncIterator
+from socket import gaierror
 
 from wxpath.http.client.request import Request
 from wxpath.http.client.response import Response
@@ -103,6 +104,7 @@ class Crawler:
         # while not self._closed:
         while not (self._closed and self._results.empty()):
             resp = await self._results.get()
+            self._results.task_done()
             yield resp
 
     def _proxy_for(self, url: str):
@@ -116,11 +118,30 @@ class Crawler:
                 resp = await self._fetch_one(req)
                 if resp is not None:
                     await self._results.put(resp)
+
+            except asyncio.CancelledError:
+                # Must propagate cancellation
+                log.warning("cancelled error", extra={"url": req.url})
+                raise
+
+            except gaierror:
+                # Ignore DNS errors
+                log.warning("DNS error", extra={"url": req.url})
+                pass
+
+            except Exception as exc:
+                log.warning("exception", extra={"url": req.url})
+                # Last-resort safety: never drop a request silently
+                await self._results.put(Response(req, 0, b"", error=exc))
             finally:
                 self._pending.task_done()
 
     async def _fetch_one(self, req: Request) -> Response | None:
         host = req.hostname
+
+        # TODO: Move this filter to hooks
+        if req.url.lower().endswith((".pdf", ".zip", ".exe")):
+            req.max_retries = 0
 
         async with self._sem_global, self._sem_host[host]:
             t0 = asyncio.get_running_loop().time()
@@ -149,7 +170,10 @@ class Crawler:
                         return None
 
                     return Response(req, resp.status, body, dict(resp.headers))
-
+            except asyncio.CancelledError:
+                # Normal during shutdown / timeout propagation
+                log.warning("cancelled error", extra={"url": req.url})
+                raise
             except Exception as exc:
                 latency = time.monotonic() - start
                 self.throttler.record_latency(host, latency)

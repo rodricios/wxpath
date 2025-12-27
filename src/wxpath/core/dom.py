@@ -1,7 +1,7 @@
 from urllib.parse import urljoin
 
 
-def _make_links_absolute(links, base_url):
+def _make_links_absolute(links: list[str], base_url: str) -> list[str]:
     """
     Convert relative links to absolute links based on the base URL.
 

@@ -15,11 +15,10 @@ from wxpath.core.models import (
     InfiniteCrawlIntent
 )
 from wxpath.util.logging import get_logger
-from wxpath.core.dom import get_absolute_links_from_elem_and_xpath
+from wxpath.core.dom import get_absolute_links_from_elem_and_xpath, _make_links_absolute
 from wxpath.core.parser import (
     _parse_object_mapping, 
-    _extract_arg_from_url_xpath_op, 
-    _url_inf_filter_expr,
+    extract_url_op_arg,
     parse_wxpath_expr,
     OPS,
     Segment
@@ -57,52 +56,42 @@ def get_operator(name: OPS) -> Callable[[html.HtmlElement, list[Segment], int], 
     return HANDLERS[name]
 
 
-@_op(OPS.URL_FROM_ATTR)
-def _handle_url_from_attr__no_return(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[CrawlIntent]:
-    """
-    Handles the `[/|//]url(@<attr>)` (e.g., `...//url(@href)`) segment of a wxpath expression
-    """
+@_op(OPS.URL_EVAL)
+def _handle_url_eval(curr_elem: html.HtmlElement | str, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[Intent]:
     op, value = curr_segments[0]
-    if curr_elem is None:
-        raise ValueError("Element must be provided when op is 'url_from_attr'.")
-    
-    url_op_arg = _extract_arg_from_url_xpath_op(value)
-    log.debug("extracted arg from url xpath op", extra={"depth": curr_depth, "op": op, "url_op_arg": url_op_arg})
-    if not url_op_arg.startswith('@'):
-        raise ValueError("Only '@*' is supported in url() segments not at the start of path_expr.")
-    
-    _path_exp = '.' + value.split('url')[0] + url_op_arg
 
-    log.debug("path expression", extra={"depth": curr_depth, "op": op, "path_exp": _path_exp})
+    _path_exp = extract_url_op_arg(value)
 
-    urls = get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
+    if isinstance(curr_elem, str):
+        # TODO: IMO, ideally, wxpath grammar should not be checked/validated/enforced in ops.py. It should in
+        # instead be validated in the parser.
+        if not _path_exp in {'.', 'self::node()'}:
+            raise ValueError(f"Only '.' or 'self::node()' is supported in url() segments when prior xpath operation results in a string. Got: {value}")
+        urls = _make_links_absolute([curr_elem], getattr(curr_elem, 'base_url', None))
+    else:
+        urls = get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
+        urls = list(dict.fromkeys(urls))
 
-    urls = list(dict.fromkeys(urls))
-
-    log.debug("absolute links", extra={"depth": curr_depth, "op": op, "url_count": len(urls)})
+    log.debug("found urls", extra={"depth": curr_depth, "op": op, "url": getattr(curr_elem, 'base_url', None), "url_count": len(urls)})
 
     for url in urls:
-        try:
-            log.debug("queueing CrawlIntent", extra={"depth": curr_depth, "op": op, "url": url})
-            yield CrawlIntent(url=url, next_segments=curr_segments[1:])
-        except requests.exceptions.RequestException as e:
-            log.exception("error fetching url", extra={"depth": curr_depth, "op": op, "url": url})
-            continue
+        log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": url})
+        yield CrawlIntent(url=url, next_segments=curr_segments[1:])
 
 
 @_op(OPS.URL_INF)
-def _handle_url_inf__no_return(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[CrawlIntent]:
+def _handle_url_inf(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[CrawlIntent]:
     """
     Handles the ///url() segment of a wxpath expression. This operation is also 
     generated internally by the parser when a `///<xpath>/[/]url()` segment is
     encountered by the parser.
     This operation does not fetch URLs; instead, it XPaths the current element
     for URLs, then queues them for further processing (see 
-    _handle_url_inf_and_xpath__no_return).
+    _handle_url_inf_and_xpath).
     """
     op, value = curr_segments[0]
 
-    _path_exp = _url_inf_filter_expr(value)
+    _path_exp = extract_url_op_arg(value)
 
     urls = get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
     
@@ -120,7 +109,7 @@ def _handle_url_inf__no_return(curr_elem: html.HtmlElement, curr_segments: list[
 
 
 @_op(OPS.URL_INF_AND_XPATH)
-def _handle_url_inf_and_xpath__no_return(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[DataIntent | ProcessIntent | InfiniteCrawlIntent]:
+def _handle_url_inf_and_xpath(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[DataIntent | ProcessIntent | InfiniteCrawlIntent]:
     """
     This is an operation that is generated internally by the parser. There is
     no explicit wxpath expression that generates this operation.
@@ -175,10 +164,11 @@ def _handle_xpath(curr_elem: html.HtmlElement, curr_segments: list[Segment], cur
     elems = curr_elem.xpath3(value)
     
     for elem in elems:
+        value_or_elem = WxStr(elem, base_url=base_url, depth=curr_depth) if isinstance(elem, str) else elem
         if len(curr_segments) == 1:
-            yield DataIntent(value=WxStr(elem, base_url=base_url, depth=curr_depth) if isinstance(elem, str) else elem)
+            yield DataIntent(value=value_or_elem)
         else:
-            yield ProcessIntent(elem=elem, next_segments=curr_segments[1:])
+            yield ProcessIntent(elem=value_or_elem, next_segments=curr_segments[1:])
 
 
 # @_op(OPS.OBJECT)

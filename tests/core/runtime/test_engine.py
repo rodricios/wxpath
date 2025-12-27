@@ -34,7 +34,7 @@ async def _collect_async(gen):
 # --------------------------------------------------------------------------- #
 # Tests
 # --------------------------------------------------------------------------- #
-def test_async_single_level(monkeypatch):
+def test_engine_run__crawl(monkeypatch):
     """A single `url()` segment should yield the parsed root element."""
     pages = {
         "http://test/": b"<html><body><p>Hello</p></body></html>",
@@ -63,7 +63,7 @@ def test_async_single_level(monkeypatch):
     assert root.base_url == "http://test/"
 
 
-def test_async_two_levels(monkeypatch):
+def test_engine_run__crawl__crawl_with_xpath(monkeypatch):
     """
     Root page contains two links; both should be fetched concurrently at depth 1.
     """
@@ -102,7 +102,7 @@ def test_async_two_levels(monkeypatch):
     assert all(e.get("depth") == "1" for e in results)
 
 
-def test_engine_run___crawl_xpath_crawl(monkeypatch):
+def test_engine_run__crawl__xpath__crawl_with_xpath(monkeypatch):
     # 1: define page HTML
     pages = {
         'http://test/': b"""
@@ -143,8 +143,92 @@ def test_engine_run___crawl_xpath_crawl(monkeypatch):
         'http://test/a2.html',
     }
 
+def test_engine_run__crawl__xpath__crawl_2(monkeypatch):
+    # 1: define page HTML
+    
+    pages = {
+        'http://test/': b"""
+            <html><body>
+              <main>
+                <a href="a1.html">A</a>
+                <a href="a2.html">B</a>
+              </main>
+              <a href="b.html">B</a>
+            </body></html>
+        """,
+        'http://test/a1.html': b"<html><body><p>Page A1</p></body></html>",
+        'http://test/a2.html': b"<html><body><p>Page A2</p></body></html>",
+        'http://test/b.html': b"<html><body><p>Page B</p></body></html>",
+    }
 
-def test_engine_run__crawl_three_levels(monkeypatch):
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+    )
+    eng = engine.WXPathEngine(concurrency=32)
+
+    # 3: build & run
+    expr = "url('http://test/')//main//a/@href/url(.)"
+    results = asyncio.run(
+        _collect_async(
+            eng.run(expr, max_depth=1)
+        )
+    )
+
+    # 4: verify BFS order and base_url propagation
+    assert len(results) == 2
+    assert results[0].get('depth') == '1'
+    assert results[1].get('depth') == '1'
+    assert {e.base_url for e in results} == {
+        'http://test/a1.html',
+        'http://test/a2.html',
+    }
+    
+
+def test_engine_run__crawl__crawl_with_xpath(monkeypatch):
+    # 1: define page HTML
+    pages = {
+        'http://test/': b"""
+            <html><body>
+              <main>
+                <a href="a1.html">A</a>
+                <a href="a2.html">B</a>
+              </main>
+              <a href="b.html">B</a>
+            </body></html>
+        """,
+        'http://test/a1.html': b"<html><body><p>Page A1</p></body></html>",
+        'http://test/a2.html': b"<html><body><p>Page A2</p></body></html>",
+        'http://test/b.html': b"<html><body><p>Page B</p></body></html>",
+    }
+
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+    )
+    eng = engine.WXPathEngine(concurrency=32)
+
+    # 3: build & run
+    expr = "url('http://test/')//url(main//a/@href)"
+    results = asyncio.run(
+        _collect_async(
+            eng.run(expr, max_depth=1)
+        )
+    )
+
+    # 4: verify BFS order and base_url propagation
+    assert len(results) == 2
+    assert results[0].get('depth') == '1'
+    assert results[1].get('depth') == '1'
+    assert {e.base_url for e in results} == {
+        'http://test/a1.html',
+        'http://test/a2.html',
+    }
+
+
+def test_engine_run__crawl__crawl__crawl(monkeypatch):
     pages = {
       'http://test/': b"<html><body><a href='lvl1.html'>L1</a></body></html>",
       'http://test/lvl1.html': b"<html><body><a href='lvl2.html'>L2</a></body></html>",
@@ -169,7 +253,7 @@ def test_engine_run__crawl_three_levels(monkeypatch):
     assert results[0].base_url == 'http://test/lvl2.html'
 
 
-def test_engine_run__crawl_two_levels_and_query(monkeypatch):
+def test_engine_run__crawl__crawl_with_xpath__xpath(monkeypatch):
     pages = {
         'http://test/': b"""
             <html><body>
@@ -201,7 +285,7 @@ def test_engine_run__crawl_two_levels_and_query(monkeypatch):
     ]
 
 
-def test_engine_run__crawl_three_levels_and_query(monkeypatch):
+def test_engine_run__crawl__crawl_with_xpath__crawl_with_xpath__xpath(monkeypatch):
     pages = {
       'http://test/': b"<html><body><a href='lvl1.html'>L1</a></body></html>",
       'http://test/lvl1.html': b"<html><body><a href='lvl2.html'>L2</a></body></html>",

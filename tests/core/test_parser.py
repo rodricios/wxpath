@@ -1,14 +1,15 @@
 import pytest
 from wxpath.core.parser import (
     _extract_arg_from_url_xpath_op, 
-    parse_wxpath_expr
+    parse_wxpath_expr,
+    OPS
 )
 
 
 def test_parse_wxpath_expr_single_url():
     expr = "url('http://example.com')"
     assert parse_wxpath_expr(expr) == [
-        ('url', 'http://example.com')
+        (OPS.URL_STR_LIT, 'http://example.com')
     ]
 
 
@@ -19,9 +20,9 @@ def test_parse_wxpath_expr_mixed_segments():
         "//url(@href)"
     )
     expected = [
-        ('url', 'https://en.wikipedia.org/wiki/Expression_language'),
-        ('url_from_attr', "//url(@href[starts-with(., '/wiki/')])"),
-        ('url_from_attr', "//url(@href)"),
+        (OPS.URL_STR_LIT, 'https://en.wikipedia.org/wiki/Expression_language'),
+        (OPS.URL_EVAL, "//url(@href[starts-with(., '/wiki/')])"),
+        (OPS.URL_EVAL, "//url(@href)"),
     ]
     assert parse_wxpath_expr(expr) == expected
 
@@ -55,14 +56,13 @@ def test_parse_wxpath_expr_multiple_inf_url_segments():
     assert "Only one ///url() is allowed" in str(excinfo.value)
 
 
-
 # Raise error if url() with fixed-length argument is preceded by navigation slashes
 def test_parse_wxpath_expr_fixed_length_url_preceded_by_slashes():
     expr = "url('http://example.com/')//url('http://example2.com/')"
     with pytest.raises(ValueError) as excinfo:
         parse_wxpath_expr(expr)
     assert \
-        "url() segment cannot have fixed-length argument and preceding navigation slashes (/|//): //url('http://example2.com/')" \
+        "url() segment cannot have string literal argument and preceding navigation slashes (/|//): //url('http://example2.com/')" \
         in str(excinfo.value)
     
 
@@ -78,6 +78,6 @@ def test_parse_wxpath_expr_object_segment():
     expr = "url('http://example.com')/map{ 'title':string(//h1/text()) }"
     parsed = parse_wxpath_expr(expr)
     assert parsed == [
-        ('url', 'http://example.com'),
-        ('xpath', "/map{ 'title':string(//h1/text()) }"),
+        (OPS.URL_STR_LIT, 'http://example.com'),
+        (OPS.XPATH, "/map{ 'title':string(//h1/text()) }"),
     ]

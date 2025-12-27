@@ -2,6 +2,7 @@ import pytest
 from lxml import html
 
 from wxpath.core import ops
+from wxpath.core.ops import OPS
 from wxpath.core.models import CrawlIntent, DataIntent, ProcessIntent, InfiniteCrawlIntent
 
 
@@ -9,10 +10,10 @@ from wxpath.core.models import CrawlIntent, DataIntent, ProcessIntent, InfiniteC
 # Registry basics
 # ---------------------------------------------------------------------------
 def test_get_operator_registry():
-    assert callable(ops.get_operator("xpath"))
-    assert callable(ops.get_operator("url_from_attr"))
-    assert callable(ops.get_operator("url_inf"))
-    assert callable(ops.get_operator("url_inf_and_xpath"))
+    assert callable(ops.get_operator(OPS.XPATH))
+    assert callable(ops.get_operator(OPS.URL_EVAL))
+    assert callable(ops.get_operator(OPS.URL_INF))
+    assert callable(ops.get_operator(OPS.URL_INF_AND_XPATH))
 
     with pytest.raises(ValueError):
         ops.get_operator("does_not_exist")
@@ -28,10 +29,10 @@ def test_url_from_attr_yields_crawl_intents(monkeypatch):
     monkeypatch.setattr(ops, "get_absolute_links_from_elem_and_xpath", fake_links)
 
     elem = html.fromstring("<html><body></body></html>", base_url="http://test/")
-    rest_segments = [("xpath", "//p/text()")]
+    rest_segments = [(OPS.XPATH, "//p/text()")]
 
-    op = ops.get_operator("url_from_attr")
-    results = list(op(elem, [("url_from_attr", "//url(@href)")] + rest_segments, 0))
+    op = ops.get_operator(OPS.URL_EVAL)
+    results = list(op(elem, [(OPS.URL_EVAL, "//url(@href)")] + rest_segments, 0))
 
     assert len(results) == 2
     for intent in results:
@@ -41,7 +42,7 @@ def test_url_from_attr_yields_crawl_intents(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _handle_url_inf__no_return
+# _handle_url_inf
 # ---------------------------------------------------------------------------
 def test_url_inf_yields_infinite_crawl_intents(monkeypatch):
     def fake_links(elem, xpath_expr):
@@ -65,7 +66,7 @@ def test_url_inf_yields_infinite_crawl_intents(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _handle_url_inf_and_xpath__no_return
+# _handle_url_inf_and_xpath
 # ---------------------------------------------------------------------------
 def test_url_inf_and_xpath_yields_data_and_infinite(monkeypatch):
     elem = html.fromstring("<html><body></body></html>", base_url="http://test/")

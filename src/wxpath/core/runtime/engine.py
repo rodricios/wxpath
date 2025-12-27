@@ -79,13 +79,16 @@ class WXPathEngine(Engine):
     async def run(self, expression: str, max_depth: int):
         segments = parse_wxpath_expr(expression)
 
-        if segments[0][0] != OPS.URL:
+        if segments[0][0] != OPS.URL_STR_LIT:
             raise ValueError("Expression must start with url()")
 
         root_url = segments[0][1]
         queue: asyncio.Queue[CrawlTask] = asyncio.Queue()
         inflight: dict[str, CrawlTask] = {}
 
+        def is_terminal():
+            return queue.empty() and not inflight
+    
         # Seed the queue
         await queue.put(
             CrawlTask(
@@ -110,11 +113,13 @@ class WXPathEngine(Engine):
                         continue
 
                     inflight[task.url] = task
-                    crawler.submit(Request(task.url))
+                    crawler.submit(Request(task.url, max_retries=0))
                     queue.task_done()
 
             submit_task = asyncio.create_task(submitter())
 
+            # While looping asynchronous generators, you MUST make sure 
+            # to check terminal conditions before re-iteration.
             async for resp in crawler:
                 task = inflight.pop(resp.request.url, None)
 
@@ -123,16 +128,27 @@ class WXPathEngine(Engine):
 
                 if task is None:
                     log.warning(f"Got unexpected response from {resp.request.url}")
+                    if is_terminal():
+                        break
                     continue
 
                 if resp.error:
+                    log.warning(f"Got error from {resp.request.url}: {resp.error}")
+                    if is_terminal():
+                        break
                     continue
 
+                # NOTE: Consider allowing redirects
                 if resp.status != 200 or not resp.body:
+                    log.warning(f"Got non-200 response from {resp.request.url}")
+                    if is_terminal():
+                        break
                     continue
 
                 body = self.post_fetch_hooks(resp.body, task)
                 if not body:
+                    if is_terminal():
+                        break
                     continue
 
                 elem = parse_html(
@@ -144,6 +160,8 @@ class WXPathEngine(Engine):
 
                 elem = self.post_parse_hooks(elem, task)
                 if elem is None:
+                    if is_terminal():
+                        break
                     continue
 
                 if task.segments:
@@ -159,7 +177,7 @@ class WXPathEngine(Engine):
                     yield self.post_extract_hooks(elem)
 
                 # Termination condition
-                if queue.empty() and not inflight:
+                if is_terminal():
                     break
 
             submit_task.cancel()
