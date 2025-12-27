@@ -85,9 +85,10 @@ class WXPathEngine(Engine):
         root_url = segments[0][1]
         queue: asyncio.Queue[CrawlTask] = asyncio.Queue()
         inflight: dict[str, CrawlTask] = {}
+        pending_tasks = 0
 
         def is_terminal():
-            return queue.empty() and not inflight
+            return queue.empty() and pending_tasks <= 0
     
         # Seed the queue
         await queue.put(
@@ -102,6 +103,7 @@ class WXPathEngine(Engine):
 
         async with self.crawler as crawler:
             async def submitter():
+                nonlocal pending_tasks
                 while True:
                     task = await queue.get()
 
@@ -112,7 +114,11 @@ class WXPathEngine(Engine):
                         queue.task_done()
                         continue
 
+                    # Mark URL as seen immediately
+                    self.seen_urls.add(task.url)
                     inflight[task.url] = task
+
+                    pending_tasks += 1
                     crawler.submit(Request(task.url, max_retries=0))
                     queue.task_done()
 
@@ -122,9 +128,7 @@ class WXPathEngine(Engine):
             # to check terminal conditions before re-iteration.
             async for resp in crawler:
                 task = inflight.pop(resp.request.url, None)
-
-                # Mark URL as seen immediately
-                self.seen_urls.add(resp.request.url)
+                pending_tasks -= 1
 
                 if task is None:
                     log.warning(f"Got unexpected response from {resp.request.url}")

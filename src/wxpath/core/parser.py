@@ -164,16 +164,16 @@ def parse_wxpath_expr(path_expr):
             segments.append(Segment(OPS.XPATH, s))
     
     # Collapes inf_xpath segment and the succeeding url_eval segment into a single url_inf segment
-    for i in range(len(segments) - 1):
-        if segments[i][0] == OPS.INF_XPATH and segments[i + 1][0] == OPS.URL_EVAL:
-            inf_xpath_value = segments[i][1]
-            url_eval_value = _extract_arg_from_url_xpath_op(segments[i + 1][1])
-            url_eval_traveral_fragment = segments[i + 1][1].split('url')[0]
-            segments[i] = Segment(
+    for i in range(len(segments) - 1, 0, -1):
+        if segments[i - 1][0] == OPS.INF_XPATH and segments[i][0] == OPS.URL_EVAL:
+            inf_xpath_value = segments[i - 1][1]
+            url_eval_value = _extract_arg_from_url_xpath_op(segments[i][1])
+            url_eval_traveral_fragment = segments[i][1].split('url')[0]
+            segments[i - 1] = Segment(
                 OPS.URL_INF,
                 f'///url({inf_xpath_value}{url_eval_traveral_fragment}{url_eval_value})'
             )
-            segments.pop(i + 1)
+            segments.pop(i)
     
     #### RAISE ERRORS FROM INVALID SEGMENTS ####
     # Raises if multiple ///url() are present

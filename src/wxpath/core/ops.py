@@ -2,7 +2,6 @@
 `ops` for "operations". This module contains side-effect-free functions (operators) 
 for handling each segment of a wxpath expression.
 """
-import requests
 from typing import Callable, Iterable
 from lxml import html
 
@@ -74,9 +73,10 @@ def _handle_url_eval(curr_elem: html.HtmlElement | str, curr_segments: list[Segm
 
     log.debug("found urls", extra={"depth": curr_depth, "op": op, "url": getattr(curr_elem, 'base_url', None), "url_count": len(urls)})
 
+    next_segments = curr_segments[1:]
     for url in urls:
         log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": url})
-        yield CrawlIntent(url=url, next_segments=curr_segments[1:])
+        yield CrawlIntent(url=url, next_segments=next_segments)
 
 
 @_op(OPS.URL_INF)
@@ -99,9 +99,9 @@ def _handle_url_inf(curr_elem: html.HtmlElement, curr_segments: list[Segment], c
 
     log.debug("found urls", extra={"depth": curr_depth, "op": op, "url": getattr(curr_elem, 'base_url', None), "url_count": len(urls)})
 
+    tail_segments = curr_segments[1:]
     for url in urls:
-
-        _segments = [(OPS.URL_INF_AND_XPATH, (url, value))] + curr_segments[1:]
+        _segments = [(OPS.URL_INF_AND_XPATH, (url, value))] + tail_segments
         
         log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": url})
         # Not incrementing since we do not actually fetch the URL here
@@ -130,7 +130,7 @@ def _handle_url_inf_and_xpath(curr_elem: html.HtmlElement, curr_segments: list[S
             yield ExtractIntent(elem=curr_elem, next_segments=next_segments)
 
         # For url_inf, also re-enqueue for further infinite expansion
-        _segments = [(OPS.URL_INF, prev_op_value)] + curr_segments[1:]
+        _segments = [(OPS.URL_INF, prev_op_value)] + next_segments
         crawl_intent = InfiniteCrawlIntent(elem=curr_elem, next_segments=_segments)
         log.debug("queueing InfiniteCrawlIntent", extra={"depth": curr_depth, "op": op, "url": url, "crawl_intent": crawl_intent})
         yield crawl_intent
@@ -163,12 +163,13 @@ def _handle_xpath(curr_elem: html.HtmlElement, curr_segments: list[Segment], cur
 
     elems = curr_elem.xpath3(value)
     
+    next_segments = curr_segments[1:]
     for elem in elems:
         value_or_elem = WxStr(elem, base_url=base_url, depth=curr_depth) if isinstance(elem, str) else elem
         if len(curr_segments) == 1:
             yield DataIntent(value=value_or_elem)
         else:
-            yield ProcessIntent(elem=value_or_elem, next_segments=curr_segments[1:])
+            yield ProcessIntent(elem=value_or_elem, next_segments=next_segments)
 
 
 # @_op(OPS.OBJECT)

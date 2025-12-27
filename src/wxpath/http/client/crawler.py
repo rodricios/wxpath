@@ -90,13 +90,6 @@ class Crawler:
             raise RuntimeError("crawler is closed")
         self._pending.put_nowait(req)
 
-    async def finish(self):
-        """
-        Wait for all pending requests to be processed and mark crawler done.
-        """
-        await self._pending.join()  # wait for queue
-        self._closed = True
-
     def __aiter__(self) -> AsyncIterator[Response]:
         return self._result_iter()
 
@@ -121,7 +114,7 @@ class Crawler:
 
             except asyncio.CancelledError:
                 # Must propagate cancellation
-                log.warning("cancelled error", extra={"url": req.url})
+                log.debug("cancelled error", extra={"url": req.url})
                 raise
 
             except gaierror:
@@ -172,7 +165,7 @@ class Crawler:
                     return Response(req, resp.status, body, dict(resp.headers))
             except asyncio.CancelledError:
                 # Normal during shutdown / timeout propagation
-                log.warning("cancelled error", extra={"url": req.url})
+                log.debug("cancelled error", extra={"url": req.url})
                 raise
             except Exception as exc:
                 latency = time.monotonic() - start

@@ -1,9 +1,27 @@
 
-# wxpath - the extraction language for the web
+# wxpath - declarative web crawling with XPath
 
-**wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, you describe what to follow and what to extract in a single expression. **wxpath** evaluates that expression concurrently, breadth-first, and streams results as they are discovered.
+**wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, you describe what to follow and what to extract in a single expression. **wxpath** evaluates that expression concurrently, breadth-first-*ish*, and streams results as they are discovered.
 
 By introducing the `url(...)` operator and the `///` syntax, **wxpath**'s engine is able to perform deep, recursive web crawling and extraction.
+
+NOTE: This project is in early development. Core concepts are stable, but the API and features may change. Please report issues - in particular, deadlocked crawls or unexpected behavior.
+
+## Contents
+
+- [Example](#example)
+- [`url(...)` and `///` Explained](#url-and---explained)
+- [General flow](#general-flow)
+- [Asynchronous Crawling](#asynchronous-crawling)
+- [Output types](#output-types)
+- [XPath 3.1 support](#xpath-31-support)
+- [CLI](#cli)
+- [Hooks (Experimental)](#hooks-experimental)
+- [Install](#install)
+- [More Examples](#more-examples)
+- [Project Philosophy](#project-philosophy)
+- [Warnings](#warnings)
+- [License](#license)
 
 ## Example
 
@@ -25,6 +43,7 @@ for item in wxpath.wxpath_async_blocking_iter(path, max_depth=1):
 ```
 
 Output:
+
 ```python
 map{'title': TextNode('Computer language'), 'url': 'https://en.wikipedia.org/wiki/Computer_language', 'short_description': TextNode('Formal language for communicating with a computer')}
 map{'title': TextNode('Machine-readable medium and data'), 'url': 'https://en.wikipedia.org/wiki/Machine_readable', 'short_description': TextNode('Medium capable of storing data in a format readable by a machine')}
@@ -46,11 +65,16 @@ The above expression does the following:
 4. Streams the extracted data as it is discovered.
 
 
+## `url(...)` and `///` Explained
+
+- `url(...)` is a special operator that fetches the content of the user-specified or internally generated URL and returns it as an HTML document for further XPath processing.
+- `///` indicates infinite/recursive traversal. It tells **wxpath** to continue following links indefinitely, up to the specified `max_depth`. Unlike repeated `url()` hops, it allows a single expression to describe unbounded graph exploration. WARNING: Use with caution and constraints to avoid traversal explosion.
+
 ## General flow
 
 **wxpath** evaluates an expression as a list of traversal and extraction steps (internally referred to as `Segment`s).
 
-`url(...)` creates crawl tasks (`CrawlTask`s) either statically (via a fixed URL) or dynamically (via a URL derived from the XPath expression). **No URL is fetched twice**.
+`url(...)` creates crawl tasks either statically (via a fixed URL) or dynamically (via a URL derived from the XPath expression). **URLs are deduplicated globally, not per-depth and on a best-effort basis**.
 
 XPath segments operate on fetched documents (fetched via the immediately preceding `url(...)` operations).
 
@@ -164,7 +188,7 @@ path_expr = """
 
 ## Hooks (Experimental)
 
-**wxpath** supports a pluggable hook system that allows you to modify the crawling and extraction behavior. You can register hooks to preprocess URLs, post-process HTML, filter extracted values, and more. Hooks will be executed in the order they are registered.
+**wxpath** supports a pluggable hook system that allows you to modify the crawling and extraction behavior. You can register hooks to preprocess URLs, post-process HTML, filter extracted values, and more. Hooks will be executed in the order they are registered. Hooks may impact performance.
 
 ```python
 
@@ -288,8 +312,8 @@ path_expr = """
 
 ### Guarantees/Goals
 
-- No URL is fetched more than once per crawl.
-- Crawls always terminate once the frontier is exhausted or `max_depth` is reached.
+- URLs are deduplicated on a best-effort, per-crawl basis.
+- Crawls are intended to terminate once the frontier is exhausted or `max_depth` is reached.
 - Requests are performed concurrently.
 - Results are streamed as soon as they are available.
 
@@ -300,6 +324,12 @@ path_expr = """
 - Automatic proxy rotation
 - Browser-based rendering (JavaScript execution)
 
+## WARNINGS!!!
+
+- Be respectful when crawling websites. A scrapy-inspired throttler is enabled by default.
+- Recursive (`///`) crawls require user discipline to avoid unbounded expansion (traversal explosion).
+- Deadlocks and hangs are possible in certain situations (e.g., all tasks waiting on blocked requests). Please report issues if you encounter such behavior.
+- Consider using timeouts, `max_depth`, and XPath predicates and filters to limit crawl scope.
 
 ## License
 
