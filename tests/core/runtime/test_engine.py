@@ -2,17 +2,10 @@ from __future__ import annotations
 
 import pytest
 import asyncio
-from unittest.mock import patch, MagicMock
 
 from tests.utils import MockCrawler
 
-from wxpath.core import parser
 from wxpath.core.runtime import engine
-from wxpath.http.client.response import Response
-from wxpath.http.client.request import Request
-
-
-from wxpath.core.models import Result
 from wxpath.core.runtime.engine import WXPathEngine
 
 
@@ -48,7 +41,6 @@ def test_engine_run__crawl(monkeypatch):
     )
 
     expr = "url('http://test/')"
-    segments = parser.parse_wxpath_expr(expr)
 
     eng = engine.WXPathEngine(concurrency=32)
     results = asyncio.run(
@@ -102,8 +94,7 @@ def test_engine_run__crawl__crawl_with_xpath(monkeypatch):
     assert all(e.get("depth") == "1" for e in results)
 
 
-def test_engine_run__crawl__xpath__crawl_with_xpath(monkeypatch):
-    # 1: define page HTML
+def test_engine_run__crawl__crawl_with_xpath_2(monkeypatch):
     pages = {
         'http://test/': b"""
             <html><body>
@@ -126,91 +117,6 @@ def test_engine_run__crawl__xpath__crawl_with_xpath(monkeypatch):
     )
     eng = engine.WXPathEngine(concurrency=32)
 
-    # 3: build & run
-    expr = "url('http://test/')//main//a/url(@href)"
-    results = asyncio.run(
-        _collect_async(
-            eng.run(expr, max_depth=1)
-        )
-    )
-
-    # 4: verify BFS order and base_url propagation
-    assert len(results) == 2
-    assert results[0].get('depth') == '1'
-    assert results[1].get('depth') == '1'
-    assert {e.base_url for e in results} == {
-        'http://test/a1.html',
-        'http://test/a2.html',
-    }
-
-def test_engine_run__crawl__xpath__crawl_2(monkeypatch):
-    # 1: define page HTML
-    
-    pages = {
-        'http://test/': b"""
-            <html><body>
-              <main>
-                <a href="a1.html">A</a>
-                <a href="a2.html">B</a>
-              </main>
-              <a href="b.html">B</a>
-            </body></html>
-        """,
-        'http://test/a1.html': b"<html><body><p>Page A1</p></body></html>",
-        'http://test/a2.html': b"<html><body><p>Page A2</p></body></html>",
-        'http://test/b.html': b"<html><body><p>Page B</p></body></html>",
-    }
-
-    monkeypatch.setattr(
-        engine,
-        "Crawler",
-        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
-    )
-    eng = engine.WXPathEngine(concurrency=32)
-
-    # 3: build & run
-    expr = "url('http://test/')//main//a/@href/url(.)"
-    results = asyncio.run(
-        _collect_async(
-            eng.run(expr, max_depth=1)
-        )
-    )
-
-    # 4: verify BFS order and base_url propagation
-    assert len(results) == 2
-    assert results[0].get('depth') == '1'
-    assert results[1].get('depth') == '1'
-    assert {e.base_url for e in results} == {
-        'http://test/a1.html',
-        'http://test/a2.html',
-    }
-    
-
-def test_engine_run__crawl__crawl_with_xpath(monkeypatch):
-    # 1: define page HTML
-    pages = {
-        'http://test/': b"""
-            <html><body>
-              <main>
-                <a href="a1.html">A</a>
-                <a href="a2.html">B</a>
-              </main>
-              <a href="b.html">B</a>
-            </body></html>
-        """,
-        'http://test/a1.html': b"<html><body><p>Page A1</p></body></html>",
-        'http://test/a2.html': b"<html><body><p>Page A2</p></body></html>",
-        'http://test/b.html': b"<html><body><p>Page B</p></body></html>",
-    }
-
-    monkeypatch.setattr(
-        engine,
-        "Crawler",
-        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
-    )
-    eng = engine.WXPathEngine(concurrency=32)
-
-    # 3: build & run
     expr = "url('http://test/')//url(main//a/@href)"
     results = asyncio.run(
         _collect_async(
@@ -218,7 +124,84 @@ def test_engine_run__crawl__crawl_with_xpath(monkeypatch):
         )
     )
 
-    # 4: verify BFS order and base_url propagation
+    assert len(results) == 2
+    assert results[0].get('depth') == '1'
+    assert results[1].get('depth') == '1'
+    assert {e.base_url for e in results} == {
+        'http://test/a1.html',
+        'http://test/a2.html',
+    }
+
+
+def test_engine_run__crawl__xpath__crawl_with_xpath(monkeypatch):
+    pages = {
+        'http://test/': b"""
+            <html><body>
+              <main>
+                <a href="a1.html">A</a>
+                <a href="a2.html">B</a>
+              </main>
+              <a href="b.html">B</a>
+            </body></html>
+        """,
+        'http://test/a1.html': b"<html><body><p>Page A1</p></body></html>",
+        'http://test/a2.html': b"<html><body><p>Page A2</p></body></html>",
+        'http://test/b.html': b"<html><body><p>Page B</p></body></html>",
+    }
+
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+    )
+    eng = engine.WXPathEngine(concurrency=32)
+
+    expr = "url('http://test/')//main//a/url(@href)"
+    results = asyncio.run(
+        _collect_async(
+            eng.run(expr, max_depth=1)
+        )
+    )
+
+    assert len(results) == 2
+    assert results[0].get('depth') == '1'
+    assert results[1].get('depth') == '1'
+    assert {e.base_url for e in results} == {
+        'http://test/a1.html',
+        'http://test/a2.html',
+    }
+
+
+def test_engine_run__crawl__xpath__crawl_2(monkeypatch):
+    pages = {
+        'http://test/': b"""
+            <html><body>
+              <main>
+                <a href="a1.html">A</a>
+                <a href="a2.html">B</a>
+              </main>
+              <a href="b.html">B</a>
+            </body></html>
+        """,
+        'http://test/a1.html': b"<html><body><p>Page A1</p></body></html>",
+        'http://test/a2.html': b"<html><body><p>Page A2</p></body></html>",
+        'http://test/b.html': b"<html><body><p>Page B</p></body></html>",
+    }
+
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+    )
+    eng = engine.WXPathEngine(concurrency=32)
+
+    expr = "url('http://test/')//main//a/@href/url(.)"
+    results = asyncio.run(
+        _collect_async(
+            eng.run(expr, max_depth=1)
+        )
+    )
+
     assert len(results) == 2
     assert results[0].get('depth') == '1'
     assert results[1].get('depth') == '1'
