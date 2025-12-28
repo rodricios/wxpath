@@ -40,7 +40,6 @@ def main():
     
     parser.add_argument("--concurrency", type=int, default=16, help="Number of concurrent fetches")
     parser.add_argument("--concurrency-per-host", type=int, default=8, help="Number of concurrent fetches per host")
-    parser.add_argument("--fetch-batch-size", type=int, default=32, help="Batch size")
 
     args = parser.parse_args()
 
@@ -55,7 +54,6 @@ def main():
     engine = WXPathEngine(
         concurrency=args.concurrency,
         per_host=args.concurrency_per_host,
-        fetch_batch_size=args.fetch_batch_size
     )
     try:
         for r in wxpath_async_blocking_iter(args.expression, args.depth, engine):

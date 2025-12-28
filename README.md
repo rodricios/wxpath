@@ -19,6 +19,7 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 - [Hooks (Experimental)](#hooks-experimental)
 - [Install](#install)
 - [More Examples](#more-examples)
+- [Advanced: Engine & Crawler Configuration](#advanced-engine--crawler-configuration)
 - [Project Philosophy](#project-philosophy)
 - [Warnings](#warnings)
 - [License](#license)
@@ -320,6 +321,34 @@ path_expr = f"""
 """
 
 items = list(wxpath.wxpath_async_blocking_iter(path_expr, max_depth=1))
+```
+
+## Advanced: Engine & Crawler Configuration
+
+You can alter the engine and crawler's behavior like so: 
+
+```python
+from wxpath import wxpath_async_blocking_iter
+from wxpath.core.runtime import WXPathEngine
+from wxpath.http.client.crawler import Crawler
+
+crawler = Crawler(
+    concurrency=8,
+    per_host=2,
+    timeout=10,
+)
+
+# If `crawler` is not specified, a default Crawler will be created with
+# the provided concurrency and per_host values, or with defaults.
+engine = WXPathEngine(
+    # concurrency=16,
+    # per_host=8, 
+    crawler=crawler,
+)
+
+path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///main//a/url(@href)"
+
+items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 ```
 
 

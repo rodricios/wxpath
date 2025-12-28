@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import contextlib
 from collections import deque
-from typing import AsyncGenerator, Any, Iterable
+from typing import AsyncGenerator, Any
 from lxml.html import HtmlElement
 
 from wxpath import patches
@@ -10,7 +10,7 @@ from wxpath.http.client.crawler import Crawler
 from wxpath.http.client.request import Request
 from wxpath.core.models import CrawlTask, CrawlIntent, ProcessIntent, DataIntent, ExtractIntent, InfiniteCrawlIntent
 from wxpath.core.parser import parse_wxpath_expr
-from wxpath.core.ops import get_operator, OPS
+from wxpath.core.ops import get_operator
 from wxpath.core.runtime.helpers import parse_html
 from wxpath.hooks.registry import get_hooks, FetchContext
 from wxpath.util.logging import get_logger
@@ -18,7 +18,7 @@ from wxpath.util.logging import get_logger
 log = get_logger(__name__)
 
 
-class Engine:
+class HookedEngineBase:
     async def post_fetch_hooks(self, body, task):
         for hook in get_hooks():
             hook_method = getattr(hook, "post_fetch", lambda _, b: b)
@@ -68,32 +68,27 @@ class Engine:
         return value
 
 
-class WXPathEngine(Engine):
+class WXPathEngine(HookedEngineBase):
     """
     Main class for executing wxpath expressions.
 
     The core pattern and directive for this engine is to build a queue of CrawlTasks, 
-    which is crawled and processed in batches (of size `fetch_batch_size`). The traversal
-    of the queue (and therefore the web tree) is done concurrently and in near-pefect 
-    depth-based BFS order (URLs of depth N are fetched before URLs of depth N+1).
+    which is crawled and processed FIFO. The traversal of the queue (and therefore 
+    the web graph) is done concurrently and in BFS-ish order.
 
     Args:
+        crawler: Crawler instance
         concurrency: number of concurrent fetches at the Crawler (request engine) level
-        fetch_batch_size: number of URLs to send to the Crawler at once - controls the 
-            streaming batch size
-        dedupe_urls_per_page: whether to dedupe URLs on a per-page basis
+        per_host: number of concurrent fetches per host
     """
     def __init__(
             self, 
+            crawler: Crawler | None = None,
             concurrency: int = 16, 
-            per_host: int = 8,
-            fetch_batch_size: int = 32, 
+            per_host: int = 8
         ):
-        self.concurrency = concurrency
-        self.per_host = per_host
-        self.fetch_batch_size = fetch_batch_size
-        self.seen_urls: set[str] = set()      # semantic traversal
-        self.crawler = Crawler(concurrency=self.concurrency, per_host=self.per_host)
+        self.seen_urls: set[str] = set()
+        self.crawler = crawler or Crawler(concurrency=concurrency, per_host=per_host)
 
     async def run(self, expression: str, max_depth: int):
         segments = parse_wxpath_expr(expression)
@@ -256,9 +251,10 @@ class WXPathEngine(Engine):
                     next_segments = intent.next_segments
                     mini_queue.append((elem, next_segments))
 
+
 def wxpath_async(path_expr: str, max_depth: int, engine: WXPathEngine = None) -> AsyncGenerator[Any, None]:
     if engine is None:
-        engine = WXPathEngine(concurrency=32)
+        engine = WXPathEngine()
     return engine.run(path_expr, max_depth)
 
 
