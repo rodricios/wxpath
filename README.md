@@ -5,7 +5,7 @@
 
 By introducing the `url(...)` operator and the `///` syntax, **wxpath**'s engine is able to perform deep, recursive web crawling and extraction.
 
-NOTE: This project is in early development. Core concepts are stable, but the API and features may change. Please report issues - in particular, deadlocked crawls or unexpected behavior.
+NOTE: This project is in early development. Core concepts are stable, but the API and features may change. Please report issues - in particular, deadlocked crawls or unexpected behavior - and any features you'd like to see (no guarantee they'll be implemented).
 
 ## Contents
 
@@ -61,14 +61,14 @@ The above expression does the following:
 2. Filters for links in the `<main>` section that start with `/wiki/` and do not contain a colon (`:`).
 3. For each link found, 
     * it follows the link and extracts the title, URL, and short description of the page.
-    * it repeats step 2.
+    * it repeats step 2 until the maximum depth is reached.
 4. Streams the extracted data as it is discovered.
 
 
 ## `url(...)` and `///` Explained
 
-- `url(...)` is a special operator that fetches the content of the user-specified or internally generated URL and returns it as an HTML document for further XPath processing.
-- `///` indicates infinite/recursive traversal. It tells **wxpath** to continue following links indefinitely, up to the specified `max_depth`. Unlike repeated `url()` hops, it allows a single expression to describe unbounded graph exploration. WARNING: Use with caution and constraints to avoid traversal explosion.
+- `url(...)` is a custom operator that fetches the content of the user-specified or internally generated URL and returns it as an `lxml.html.HtmlElement` for further XPath processing.
+- `///` indicates infinite/recursive traversal. It tells **wxpath** to continue following links indefinitely, up to the specified `max_depth`. Unlike repeated `url()` hops, it allows a single expression to describe unbounded graph exploration. WARNING: Use with caution and constraints (via `max_depth` or XPath predicates) to avoid traversal explosion.
 
 ## General flow
 
@@ -231,7 +231,7 @@ hooks.register(hooks.JSONLWriter)
 ## Install
 
 ```
-pip install -e .
+pip install wxpath
 ```
 
 
@@ -299,6 +299,27 @@ path_expr = """
 # [Segment(op='url', value='https://en.wikipedia.org/wiki/Expression_language'),
 #  Segment(op='url_inf', value='///url(//main//a/@href)'),
 #  Segment(op='xpath', value='/map {        \'title\':(//span[contains(@class, "mw-page-title-main")]/text())[1],         \'short_description\':(//div[contains(@class, "shortdescription")]/text())[1],        \'url\'://link[@rel=\'canonical\']/@href[1]    }')]
+
+#### EXAMPLE 5 = Seeding from XPath function expression + mapping operator (`!`)
+#
+# Functionally create 10 Amazon book search result page URLs, map each URL to 
+# the url(.) operator, and for each page, extract the title, price, and link of
+# each book listed.
+# 
+base_url = "https://www.amazon.com/s?k=books&i=stripbooks&page="
+
+path_expr = f"""
+    (1 to 10) ! ('{base_url}' || .) !
+    url(.)
+        //span[@data-component-type='s-search-results']//*[@role='listitem']
+            /map {{
+                'title': (.//h2/span/text())[1],
+                'price': (.//span[@class='a-price']/span[@class='a-offscreen']/text())[1],
+                'link': (.//a[@aria-describedby='price-link']/@href)[1]
+            }}
+"""
+
+items = list(wxpath.wxpath_async_blocking_iter(path_expr, max_depth=1))
 ```
 
 
