@@ -27,6 +27,7 @@ class OPS(StrEnum):
     URL_INF           = "url_inf"
     URL_INF_AND_XPATH = "url_inf_and_xpath"
     XPATH             = "xpath"
+    XPATH_FN_MAP_FRAG = "xpath_fn_map_frag" # XPath function ending with map operator '!'
     INF_XPATH         = "inf_xpath"
     OBJECT            = "object" # Deprecated
     URL_FROM_ATTR     = "url_from_attr" # Deprecated
@@ -54,72 +55,18 @@ def _extract_arg_from_url_xpath_op(url_subsegment):
     return match.group(1).strip("'\"")  # Remove surrounding quotes if any
 
 
-def _split_top_level(s: str, sep: str = ',') -> list[str]:
+def _scan_path_expr(path_expr: str) -> list[str]:
     """
-    Split *s* on *sep* but only at the top-level (i.e. not inside (), [] or {}).
-
-    This is needed so we can correctly split key/value pairs inside an object
-    segment even when the value itself contains commas or braces.
+    Provided a wxpath expression, produce a list of all xpath and url() partitions
+    
+    :param path_expr: Description
     """
-    parts, depth, current = [], 0, []
-    opening, closing = "([{", ")]}"
-
-    for ch in s:
-        if ch in opening:
-            depth += 1
-        elif ch in closing:
-            depth -= 1
-
-        if ch == sep and depth == 0:
-            parts.append(''.join(current))
-            current = []
-        else:
-            current.append(ch)
-
-    parts.append(''.join(current))
-    return parts
-
-
-def _parse_object_mapping(segment: str) -> dict[str, str]:
-    # Trim the leading '/{' or '{' and the trailing '}'.
-    if segment.startswith('/{'):
-        inner = segment[2:-1]
-    else:
-        inner = segment[1:-1]
-
-    mapping = {}
-    for part in _split_top_level(inner):
-        if not part.strip():
-            continue
-        key, expr = part.split(':', 1)
-        mapping[key.strip()] = expr.strip()
-    return mapping
-
-
-def parse_wxpath_expr(path_expr):
     # remove newlines
     path_expr = path_expr.replace('\n', '')
     partitions = []  # type: list[str]
     i = 0
     n = len(path_expr)
     while i < n:
-        # Detect object-construction partitions:  '/{ ... }'  or  '{ ... }'
-        if path_expr[i] == '{' or (path_expr[i] == '/' and i + 1 < n and path_expr[i + 1] == '{'):
-            seg_start = i
-            # Skip the optional leading '/'
-            if path_expr[i] == '/':
-                i += 1
-            # We are now at the opening '{'
-            brace_depth = 1
-            i += 1
-            while i < n and brace_depth > 0:
-                if path_expr[i] == '{':
-                    brace_depth += 1
-                elif path_expr[i] == '}':
-                    brace_depth -= 1
-                i += 1
-            partitions.append(path_expr[seg_start:i])  # include leading '/' if present
-            continue
         # Detect ///url(, //url(, /url(, or url(
         match = re.match(r'/{0,3}url\(', path_expr[i:])
         if match:
@@ -141,6 +88,13 @@ def parse_wxpath_expr(path_expr):
                 partitions.append(path_expr[i:next_pos])
             i = next_pos
 
+    return partitions
+
+
+def parse_wxpath_expr(path_expr):
+    partitions = _scan_path_expr(path_expr)
+
+    # Lex and parse
     segments = []  # type: list[Segment]
     for s in partitions:
         s = s.strip()
@@ -156,10 +110,12 @@ def parse_wxpath_expr(path_expr):
             raise ValueError(f"url() segment cannot have string literal argument and preceding navigation slashes (/|//): {s}")
         elif s.startswith('/url(') or s.startswith("//url("):
             segments.append(Segment(OPS.URL_EVAL, s))
+        elif s.startswith('url('):
+            segments.append(Segment(OPS.URL_EVAL, s))
         elif s.startswith('///'):
             segments.append(Segment(OPS.INF_XPATH, "//" + s[3:]))
-        # elif s.startswith('/{') or s.startswith('{'):
-        #     parsed.append(('object', s))
+        elif s.endswith('!'):
+            segments.append(Segment(OPS.XPATH_FN_MAP_FRAG, s[:-1]))
         else:
             segments.append(Segment(OPS.XPATH, s))
     
@@ -180,12 +136,19 @@ def parse_wxpath_expr(path_expr):
     if len([op for op, val in segments if op == OPS.URL_INF]) > 1:
         raise ValueError("Only one ///url() is allowed")
     
-    # Raises if multiple url() are present
+    # Raises if multiple url() with string literals are present
     if len([op for op, _ in segments if op == OPS.URL_STR_LIT]) > 1:
-        raise ValueError("Only one url() is allowed")
+        raise ValueError("Only one url() with string literal argument is allowed")
     
     # Raises when expr starts with //url(@<attr>)
     if segments and segments[0][0] == OPS.URL_EVAL:
-        raise ValueError("Path expr cannot start with [//]url(@<attr>)")
+        raise ValueError("Path expr cannot start with [//]url(<xpath>)")
     
+    # Raises if expr ends with INF_XPATH
+    if segments and segments[-1][0] == OPS.INF_XPATH:
+        raise ValueError("Path expr cannot end with ///<xpath>")
+    
+    # Raises if expr ends with XPATH_FN_MAP_FRAG
+    if segments and segments[-1][0] == OPS.XPATH_FN_MAP_FRAG:
+        raise ValueError("Path expr cannot end with !")
     return segments

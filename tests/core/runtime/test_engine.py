@@ -42,7 +42,7 @@ def test_engine_run__crawl(monkeypatch):
 
     expr = "url('http://test/')"
 
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=2)
@@ -75,7 +75,7 @@ def test_engine_run__crawl__crawl_with_xpath(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
 
     expr = "url('http://test/')//url(@href)"
 
@@ -115,7 +115,7 @@ def test_engine_run__crawl__crawl_with_xpath_2(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
 
     expr = "url('http://test/')//url(main//a/@href)"
     results = asyncio.run(
@@ -130,6 +130,49 @@ def test_engine_run__crawl__crawl_with_xpath_2(monkeypatch):
     assert {e.base_url for e in results} == {
         'http://test/a1.html',
         'http://test/a2.html',
+    }
+
+
+def test_engine_run__crawl__crawl_with_xpath_3(monkeypatch):
+    pages = {
+        'http://test/': b"""
+            <html><body>
+              <main>
+                <a href="a1.html">A</a>
+                <a href="a2.html">B</a>
+                <a href="http://different/a3.html">C</a>
+              </main>
+              <a href="b.html">B</a>
+            </body></html>
+        """,
+        'http://test/a1.html': b"<html><body><p>Page A1</p></body></html>",
+        'http://test/a2.html': b"<html><body><p>Page A2</p></body></html>",
+        'http://test/b.html': b"<html><body><p>Page B</p></body></html>",
+        'http://different/a3.html': b"<html><body><p>Page A3</p></body></html>",
+    }
+
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+    )
+    eng = engine.WXPathEngine()
+
+    expr = "url('http://test/')//url(main//a/@href)"
+    results = asyncio.run(
+        _collect_async(
+            eng.run(expr, max_depth=1)
+        )
+    )
+
+    assert len(results) == 3
+    assert results[0].get('depth') == '1'
+    assert results[1].get('depth') == '1'
+    assert results[2].get('depth') == '1'
+    assert {e.base_url for e in results} == {
+        'http://test/a1.html',
+        'http://test/a2.html',
+        'http://different/a3.html'
     }
 
 
@@ -154,7 +197,7 @@ def test_engine_run__crawl__xpath__crawl_with_xpath(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
 
     expr = "url('http://test/')//main//a/url(@href)"
     results = asyncio.run(
@@ -193,7 +236,7 @@ def test_engine_run__crawl__xpath__crawl_2(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
 
     expr = "url('http://test/')//main//a/@href/url(.)"
     results = asyncio.run(
@@ -224,7 +267,7 @@ def test_engine_run__crawl__crawl__crawl(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=2)
@@ -254,7 +297,7 @@ def test_engine_run__crawl__crawl_with_xpath__xpath(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=1)
@@ -283,7 +326,7 @@ def test_engine_run__crawl__crawl_with_xpath__crawl_with_xpath__xpath(monkeypatc
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=2)
@@ -308,7 +351,7 @@ def test_engine_run__crawl_four_levels_and_query_and_max_depth_2(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=2)
@@ -339,7 +382,7 @@ def test_engine_run__filtered_crawl(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=2)
@@ -370,7 +413,7 @@ def test_engine_run__infinite_crawl_max_depth_uncapped(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=9999)
@@ -405,7 +448,7 @@ def test_engine_run__infinite_crawl_max_depth_1(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=1)
@@ -438,7 +481,7 @@ def test_engine_run__infinite_crawl__query__max_depth_1(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=1)
@@ -473,7 +516,7 @@ def test_engine_run__crawl__inf_crawl__query__max_depth_2(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=2)
@@ -488,7 +531,7 @@ def test_engine_run__crawl__inf_crawl__query__max_depth_2(monkeypatch):
     ]
 
 
-def test_engine_run__crawl__inf_crawl__query__dupe_link__dedupe_urls_per_depth_True__max_depth_2(monkeypatch):
+def test_engine_run__crawl__inf_crawl__query__dupe_link__max_depth_2(monkeypatch):
     pages = {
         'http://test/': b"""
             <html><body>
@@ -509,7 +552,7 @@ def test_engine_run__crawl__inf_crawl__query__dupe_link__dedupe_urls_per_depth_T
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=2)
@@ -522,6 +565,36 @@ def test_engine_run__crawl__inf_crawl__query__dupe_link__dedupe_urls_per_depth_T
         'a2.html',
         'b2.html',
     ]
+
+
+def test_engine_run__xpath_fn_map_frag__crawl(monkeypatch):
+    pages = {
+        'http://test/1': b"""
+            <html><body></body></html>""",
+        'http://test/2': b"""
+            <html><body></body></html>""",
+        'http://test/3': b"""
+            <html><body></body></html>""",
+    }
+    expr = "(1 to 3) ! ('http://test/' || .) ! url(.)"
+    
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+    )
+    eng = engine.WXPathEngine()
+    results = asyncio.run(
+        _collect_async(
+            eng.run(expr, max_depth=2)
+        )
+    )
+    assert len(results) == 3
+    assert set(r.base_url for r in results) == {
+        'http://test/1',
+        'http://test/2',
+        'http://test/3',
+    }
 
 
 # Test evaluate_wxpath_bfs_iter() with filtered (argument) infinite crawl - type 1
@@ -546,7 +619,7 @@ def test_engine_run__infinite_crawl_with_inf_filter_before_url_op(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=2)
@@ -581,7 +654,7 @@ def test_engine_run___crawl_xpath_crawl_max_depth_1(monkeypatch):
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=1)
@@ -614,7 +687,7 @@ def test_engine_run___crawl_inf_crawl_with_filter(monkeypatch): #infinite_crawl_
         "Crawler",
         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
     )
-    eng = engine.WXPathEngine(concurrency=32)
+    eng = engine.WXPathEngine()
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=2)
@@ -753,7 +826,7 @@ async def test_engine_deduplicates_urls(monkeypatch):
 #         "Crawler",
 #         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
 #     )
-#     eng = engine.WXPathEngine(concurrency=32)
+#     eng = engine.WXPathEngine()
 
 #     # engine.crawler = crawler
 
@@ -806,7 +879,7 @@ async def test_engine_deduplicates_urls(monkeypatch):
 #         FakeResponse("http://unexpected.com"),
 #     ])
 
-#     eng = engine.WXPathEngine(concurrency=32)
+#     eng = engine.WXPathEngine()
 
 #     eng.crawler = crawler
 

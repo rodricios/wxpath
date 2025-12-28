@@ -20,9 +20,32 @@ def test_get_operator_registry():
 
 
 # ---------------------------------------------------------------------------
-# _handle_url_from_attr__no_return
+# _handle_xpath_fn_map_frag
 # ---------------------------------------------------------------------------
-def test_url_from_attr_yields_crawl_intents(monkeypatch):
+def test_xpath_fn_map_frag_yields_data_intents(monkeypatch):
+    rest_segments = [(OPS.URL_EVAL, "url(.)")]
+
+    op = ops.get_operator(OPS.XPATH_FN_MAP_FRAG)
+    results = list(op(None, [(OPS.XPATH_FN_MAP_FRAG, "(1 to 3)")] + rest_segments, 0))
+
+    assert len(results) == 3
+    assert isinstance(results[0], ProcessIntent)
+    assert isinstance(results[1], ProcessIntent)
+    assert isinstance(results[2], ProcessIntent)
+
+    assert results[0].next_segments == rest_segments
+    assert results[1].next_segments == rest_segments
+    assert results[2].next_segments == rest_segments
+
+    assert str(results[0].elem) == "1"
+    assert str(results[1].elem) == "2"
+    assert str(results[2].elem) == "3"
+
+
+# ---------------------------------------------------------------------------
+# _handle_url_eval
+# ---------------------------------------------------------------------------
+def test_url_eval_yields_crawl_intents(monkeypatch):
     def fake_links(elem, xpath_expr):
         return ["http://test/a.html", "http://test/b.html"]
 

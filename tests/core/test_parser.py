@@ -71,7 +71,7 @@ def test_parse_wxpath_expr_url_from_attr_without_elem():
     expr = "//url(@href)"
     with pytest.raises(ValueError) as excinfo:
         parse_wxpath_expr(expr)
-    assert "Path expr cannot start with [//]url(@<attr>)" in str(excinfo.value)
+    assert "Path expr cannot start with [//]url(<xpath>)" in str(excinfo.value)
 
 
 def test_parse_wxpath_expr_object_segment():
