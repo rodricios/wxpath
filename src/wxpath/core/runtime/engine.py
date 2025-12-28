@@ -98,27 +98,12 @@ class WXPathEngine(Engine):
     async def run(self, expression: str, max_depth: int):
         segments = parse_wxpath_expr(expression)
 
-        if segments[0][0] != OPS.URL_STR_LIT:
-            raise ValueError("Expression must start with url()")
-
-        root_url = segments[0][1]
         queue: asyncio.Queue[CrawlTask] = asyncio.Queue()
         inflight: dict[str, CrawlTask] = {}
         pending_tasks = 0
 
         def is_terminal():
             return queue.empty() and pending_tasks <= 0
-    
-        # Seed the queue
-        await queue.put(
-            CrawlTask(
-                elem=None,
-                url=root_url,
-                segments=segments[1:],
-                depth=0,
-                backlink=None,
-            )
-        )
 
         async with self.crawler as crawler:
             async def submitter():
@@ -142,6 +127,23 @@ class WXPathEngine(Engine):
                     queue.task_done()
 
             submit_task = asyncio.create_task(submitter())
+
+            # Seed the pipeline with a dummy task
+            seed_task = CrawlTask(
+                elem=None,
+                url=None,
+                segments=segments,
+                depth=-1,
+                backlink=None,
+            )
+            async for output in self._process_pipeline(
+                task=seed_task,
+                elem=None,
+                depth=seed_task.depth,
+                max_depth=max_depth,
+                queue=queue,
+            ):
+                yield await self.post_extract_hooks(output)
 
             # While looping asynchronous generators, you MUST make sure 
             # to check terminal conditions before re-iteration.

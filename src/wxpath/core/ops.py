@@ -3,7 +3,12 @@
 for handling each segment of a wxpath expression.
 """
 from typing import Callable, Iterable
+
+import elementpath
+from elementpath.xpath3 import XPath3Parser
+from elementpath.datatypes import AnyAtomicType
 from lxml import html
+from urllib.parse import urljoin
 
 from wxpath.core.models import (
     Intent,
@@ -16,9 +21,7 @@ from wxpath.core.models import (
 from wxpath.util.logging import get_logger
 from wxpath.core.dom import get_absolute_links_from_elem_and_xpath, _make_links_absolute
 from wxpath.core.parser import (
-    _parse_object_mapping, 
     extract_url_op_arg,
-    parse_wxpath_expr,
     OPS,
     Segment
 )
@@ -44,6 +47,8 @@ HANDLERS: dict[str, Callable] = {}
 
 def _op(name: OPS):
     def reg(fn): 
+        if name in HANDLERS:
+            raise ValueError(f"Duplicate operation: {name}")
         HANDLERS[name] = fn
         return fn
     return reg
@@ -53,6 +58,13 @@ def get_operator(name: OPS) -> Callable[[html.HtmlElement, list[Segment], int], 
     if name not in HANDLERS:
         raise ValueError(f"Unknown operation: {name}")
     return HANDLERS[name]
+
+@_op(OPS.URL_STR_LIT)
+def _handle_url_str_lit(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[Intent]:
+    op, value = curr_segments[0]
+
+    log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": value})
+    yield CrawlIntent(url=value, next_segments=curr_segments[1:])
 
 
 @_op(OPS.URL_EVAL)
@@ -66,12 +78,13 @@ def _handle_url_eval(curr_elem: html.HtmlElement | str, curr_segments: list[Segm
         # instead be validated in the parser.
         if not _path_exp in {'.', 'self::node()'}:
             raise ValueError(f"Only '.' or 'self::node()' is supported in url() segments when prior xpath operation results in a string. Got: {value}")
-        urls = _make_links_absolute([curr_elem], getattr(curr_elem, 'base_url', None))
-    else:
-        urls = get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
-        urls = list(dict.fromkeys(urls))
 
-    log.debug("found urls", extra={"depth": curr_depth, "op": op, "url": getattr(curr_elem, 'base_url', None), "url_count": len(urls)})
+        urls = [urljoin(getattr(curr_elem, 'base_url', None) or '', curr_elem)]
+    else:
+        # TODO: If prior xpath operation is XPATH_FN_MAP_FRAG, then this will likely fail.
+        # It should be handled in the parser.
+        urls = get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
+        urls = dict.fromkeys(urls)
 
     next_segments = curr_segments[1:]
     for url in urls:
@@ -94,17 +107,15 @@ def _handle_url_inf(curr_elem: html.HtmlElement, curr_segments: list[Segment], c
     _path_exp = extract_url_op_arg(value)
 
     urls = get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
-    
-    urls = list(dict.fromkeys(urls))
 
-    log.debug("found urls", extra={"depth": curr_depth, "op": op, "url": getattr(curr_elem, 'base_url', None), "url_count": len(urls)})
+    log.debug("found urls", extra={"depth": curr_depth, "op": op, "url": getattr(curr_elem, 'base_url', None)})
 
     tail_segments = curr_segments[1:]
-    for url in urls:
+    for url in dict.fromkeys(urls):
         _segments = [(OPS.URL_INF_AND_XPATH, (url, value))] + tail_segments
         
         log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": url})
-        # Not incrementing since we do not actually fetch the URL here
+
         yield CrawlIntent(url=url, next_segments=_segments)
 
 
@@ -150,7 +161,6 @@ def _handle_xpath(curr_elem: html.HtmlElement, curr_segments: list[Segment], cur
         raise ValueError("Element must be provided when path_expr does not start with 'url()'.")
     base_url = getattr(curr_elem, 'base_url', None)
     log.debug("base url", extra={"depth": curr_depth, "op": 'xpath', "base_url": base_url})
-    # assert backlink == base_url, "Backlink must be equal to base_url"
 
     _backlink_str = f"string('{curr_elem.get('backlink')}')"
     # We use the root tree's depth and not curr_depth because curr_depth accounts for a +1 
@@ -172,56 +182,31 @@ def _handle_xpath(curr_elem: html.HtmlElement, curr_segments: list[Segment], cur
             yield ProcessIntent(elem=value_or_elem, next_segments=next_segments)
 
 
-# @_op(OPS.OBJECT)
-def _handle_object(curr_elem, curr_segments, curr_depth, backlink,
-                   max_depth, seen_urls):
+@_op(OPS.XPATH_FN_MAP_FRAG)
+def _handle_xpath_fn_map_frag(curr_elem: html.HtmlElement | str, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[DataIntent | ProcessIntent]:
     """
-    Builds a JSON-like dict from an object segment.
-
-    Each value expression is evaluated using the full wxpath DSL so it can
-    contain anything from a plain XPath to another `url()` hop.
+    Handles the execution of XPath functions that were initially suffixed with a 
+    '!' (map) operator.
     """
-    assert False, "Code is deprecated. Functionality fulfilled by XPath 3.1 map objects."
     _, value = curr_segments[0]
 
-    if curr_elem is None:
-        raise ValueError("Object segment requires an element context before it.")
+    base_url = getattr(curr_elem, 'base_url', None)
+    next_segments = curr_segments[1:]
 
-    obj_map = _parse_object_mapping(value)
-    result = {}
+    result = elementpath.select(
+        curr_elem,
+        value,
+        parser=XPath3Parser,
+        item='' if curr_elem is None else None
+    )
 
-    for key, expr in obj_map.items():
-        # Detect optional [n] scalar-selection suffix.
-        idx = None
-        m = re.match(r'^(.*)\[(\d+)\]\s*$', expr)
-        if m:
-            expr_inner = m.group(1).strip()
-            idx = int(m.group(2))
+    if isinstance(result, AnyAtomicType):
+        result = [result]
+
+    for r in result:
+        value_or_elem = WxStr(r, base_url=base_url, depth=curr_depth) if isinstance(r, str) else r
+        if len(curr_segments) == 1:
+            # XPATH_FN_MAP_FRAG is not a terminal operation
+            raise ValueError("XPATH_FN_MAP_FRAG is not a terminal operation")
         else:
-            expr_inner = expr
-
-        # Parse the sub-expression and decide whether it needs a root element.
-        sub_segments = parse_wxpath_expr(expr_inner)
-        root_elem = None if sub_segments[0][0] != 'xpath' else curr_elem
-
-        sub_results = list(
-            evaluate_wxpath_bfs_iter(
-                root_elem,
-                sub_segments,
-                max_depth=max_depth,
-            )
-        )
-
-        # Apply index hint if present
-        if idx is not None:
-            sub_results = sub_results[idx:idx+1] if len(sub_results) > idx else []
-
-        if not sub_results:
-            result[key] = None
-        elif len(sub_results) == 1:
-            result[key] = sub_results[0]
-        else:
-            result[key] = sub_results
-
-    # Yield the constructed object; no further traversal after an object segment.
-    yield result
+            yield ProcessIntent(elem=value_or_elem, next_segments=next_segments)
