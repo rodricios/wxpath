@@ -1,13 +1,11 @@
 import pytest
-import asyncio
 
 from wxpath.hooks.registry import (
-    register,
     get_hooks,
     pipe_post_extract,
     pipe_post_extract_async,
+    register,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

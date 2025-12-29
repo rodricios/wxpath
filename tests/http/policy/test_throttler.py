@@ -1,8 +1,8 @@
 import asyncio
+
 import pytest
 
 from wxpath.http.policy.throttler import AutoThrottler
-
 
 # ---------------------------------------------------------------------------
 # Helpers

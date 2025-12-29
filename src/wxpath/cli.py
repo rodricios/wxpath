@@ -2,10 +2,10 @@ import argparse
 import json
 import sys
 
-from wxpath.hooks import builtin # load default hooks
 from wxpath.core.ops import WxStr
 from wxpath.core.parser import parse_wxpath_expr
-from wxpath.core.runtime.engine import wxpath_async_blocking_iter, WXPathEngine
+from wxpath.core.runtime.engine import WXPathEngine, wxpath_async_blocking_iter
+from wxpath.hooks import builtin  # noqa: F401
 
 
 def _simplify(obj):
@@ -39,7 +39,12 @@ def main():
     parser.add_argument("--verbose", action="store_true", help="Verbose mode")
     
     parser.add_argument("--concurrency", type=int, default=16, help="Number of concurrent fetches")
-    parser.add_argument("--concurrency-per-host", type=int, default=8, help="Number of concurrent fetches per host")
+    parser.add_argument(
+        "--concurrency-per-host", 
+        type=int,
+        default=8,
+        help="Number of concurrent fetches per host"
+    )
 
     args = parser.parse_args()
 

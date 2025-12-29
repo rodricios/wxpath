@@ -3,28 +3,24 @@
 for handling each segment of a wxpath expression.
 """
 from typing import Callable, Iterable
-
-import elementpath
-from elementpath.xpath3 import XPath3Parser
-from elementpath.datatypes import AnyAtomicType
-from lxml import html
 from urllib.parse import urljoin
 
+import elementpath
+from elementpath.datatypes import AnyAtomicType
+from elementpath.xpath3 import XPath3Parser
+from lxml import html
+
+from wxpath.core.dom import get_absolute_links_from_elem_and_xpath
 from wxpath.core.models import (
+    CrawlIntent,
+    DataIntent,
+    ExtractIntent,
+    InfiniteCrawlIntent,
     Intent,
-    CrawlIntent, 
-    DataIntent, 
-    ProcessIntent, 
-    ExtractIntent, 
-    InfiniteCrawlIntent
+    ProcessIntent,
 )
+from wxpath.core.parser import OPS, Segment, extract_url_op_arg
 from wxpath.util.logging import get_logger
-from wxpath.core.dom import get_absolute_links_from_elem_and_xpath, _make_links_absolute
-from wxpath.core.parser import (
-    extract_url_op_arg,
-    OPS,
-    Segment
-)
 
 log = get_logger(__name__)
 
@@ -60,7 +56,9 @@ def get_operator(name: OPS) -> Callable[[html.HtmlElement, list[Segment], int], 
     return HANDLERS[name]
 
 @_op(OPS.URL_STR_LIT)
-def _handle_url_str_lit(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[Intent]:
+def _handle_url_str_lit(curr_elem: html.HtmlElement, 
+                        curr_segments: list[Segment], 
+                        curr_depth: int, **kwargs) -> Iterable[Intent]:
     op, value = curr_segments[0]
 
     log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": value})
@@ -68,16 +66,20 @@ def _handle_url_str_lit(curr_elem: html.HtmlElement, curr_segments: list[Segment
 
 
 @_op(OPS.URL_EVAL)
-def _handle_url_eval(curr_elem: html.HtmlElement | str, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[Intent]:
+def _handle_url_eval(curr_elem: html.HtmlElement | str, 
+                     curr_segments: list[Segment], 
+                     curr_depth: int, 
+                     **kwargs) -> Iterable[Intent]:
     op, value = curr_segments[0]
 
     _path_exp = extract_url_op_arg(value)
 
     if isinstance(curr_elem, str):
-        # TODO: IMO, ideally, wxpath grammar should not be checked/validated/enforced in ops.py. It should in
-        # instead be validated in the parser.
-        if not _path_exp in {'.', 'self::node()'}:
-            raise ValueError(f"Only '.' or 'self::node()' is supported in url() segments when prior xpath operation results in a string. Got: {value}")
+        # TODO: IMO, ideally, wxpath grammar should not be checked/validated/enforced 
+        # in ops.py. It should instead be validated in the parser.
+        if _path_exp not in {'.', 'self::node()'}:
+            raise ValueError("Only '.' or 'self::node()' is supported in url() segments "
+                             f"when prior xpath operation results in a string. Got: {value}")
 
         urls = [urljoin(getattr(curr_elem, 'base_url', None) or '', curr_elem)]
     else:
@@ -93,7 +95,10 @@ def _handle_url_eval(curr_elem: html.HtmlElement | str, curr_segments: list[Segm
 
 
 @_op(OPS.URL_INF)
-def _handle_url_inf(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[CrawlIntent]:
+def _handle_url_inf(curr_elem: html.HtmlElement, 
+                    curr_segments: list[Segment], 
+                    curr_depth: int, 
+                    **kwargs) -> Iterable[CrawlIntent]:
     """
     Handles the ///url() segment of a wxpath expression. This operation is also 
     generated internally by the parser when a `///<xpath>/[/]url()` segment is
@@ -120,7 +125,10 @@ def _handle_url_inf(curr_elem: html.HtmlElement, curr_segments: list[Segment], c
 
 
 @_op(OPS.URL_INF_AND_XPATH)
-def _handle_url_inf_and_xpath(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[DataIntent | ProcessIntent | InfiniteCrawlIntent]:
+def _handle_url_inf_and_xpath(curr_elem: html.HtmlElement, 
+                              curr_segments: list[Segment], 
+                              curr_depth: int, **kwargs) \
+                                -> Iterable[DataIntent | ProcessIntent | InfiniteCrawlIntent]:
     """
     This is an operation that is generated internally by the parser. There is
     no explicit wxpath expression that generates this operation.
@@ -146,12 +154,15 @@ def _handle_url_inf_and_xpath(curr_elem: html.HtmlElement, curr_segments: list[S
         log.debug("queueing InfiniteCrawlIntent", extra={"depth": curr_depth, "op": op, "url": url, "crawl_intent": crawl_intent})
         yield crawl_intent
 
-    except Exception as e:
+    except Exception:
         log.exception("error fetching url", extra={"depth": curr_depth, "op": op, "url": url})
 
 
 @_op(OPS.XPATH)
-def _handle_xpath(curr_elem: html.HtmlElement, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[DataIntent | ProcessIntent]:
+def _handle_xpath(curr_elem: html.HtmlElement, 
+                  curr_segments: list[Segment], 
+                  curr_depth: int, 
+                  **kwargs) -> Iterable[DataIntent | ProcessIntent]:
     """
     Handles the [/|//]<xpath> segment of a wxpath expression. This is a plain XPath expression.
     Also handles wxpath-specific macro expansions like wx:backlink() or wx:depth().
@@ -175,7 +186,10 @@ def _handle_xpath(curr_elem: html.HtmlElement, curr_segments: list[Segment], cur
     
     next_segments = curr_segments[1:]
     for elem in elems:
-        value_or_elem = WxStr(elem, base_url=base_url, depth=curr_depth) if isinstance(elem, str) else elem
+        value_or_elem = WxStr(
+            elem, base_url=base_url, 
+            depth=curr_depth
+        ) if isinstance(elem, str) else elem
         if len(curr_segments) == 1:
             yield DataIntent(value=value_or_elem)
         else:
@@ -183,7 +197,10 @@ def _handle_xpath(curr_elem: html.HtmlElement, curr_segments: list[Segment], cur
 
 
 @_op(OPS.XPATH_FN_MAP_FRAG)
-def _handle_xpath_fn_map_frag(curr_elem: html.HtmlElement | str, curr_segments: list[Segment], curr_depth: int, **kwargs) -> Iterable[DataIntent | ProcessIntent]:
+def _handle_xpath_fn_map_frag(curr_elem: html.HtmlElement | str, 
+                              curr_segments: list[Segment], 
+                              curr_depth: int, 
+                              **kwargs) -> Iterable[DataIntent | ProcessIntent]:
     """
     Handles the execution of XPath functions that were initially suffixed with a 
     '!' (map) operator.

@@ -4,6 +4,7 @@ from typing import Optional
 
 from wxpath.http.client.request import Request
 
+
 @dataclass
 class Response:
     request: Request

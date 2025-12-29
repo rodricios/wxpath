@@ -3,11 +3,12 @@ aiohttp request statistics and tracing hooks.
 """
 
 import time
+from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import Optional
 
 from aiohttp import TraceConfig
-from collections import defaultdict
-from dataclasses import dataclass, field
+
 
 @dataclass
 class CrawlerStats:
@@ -65,8 +66,10 @@ def build_trace_config(stats: CrawlerStats) -> TraceConfig:
         # EWMA update: alpha = 0.3
         alpha = 0.3
         stats.latency_ewma = (alpha * latency) + ((1 - alpha) * stats.latency_ewma)
-        stats.min_latency = latency if stats.min_latency is None else min(stats.min_latency, latency)
-        stats.max_latency = latency if stats.max_latency is None else max(stats.max_latency, latency)
+        stats.min_latency = latency if stats.min_latency is None \
+            else min(stats.min_latency, latency)
+        stats.max_latency = latency if stats.max_latency is None \
+            else max(stats.max_latency, latency)
 
         status = getattr(params.response, "status", None)
         if status is not None:

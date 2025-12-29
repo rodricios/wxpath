@@ -1,18 +1,26 @@
 import asyncio
-import inspect
 import contextlib
+import inspect
 from collections import deque
-from typing import AsyncGenerator, Any
+from typing import Any, AsyncGenerator
+
 from lxml.html import HtmlElement
 
-from wxpath import patches
+from wxpath import patches  # noqa: F401
+from wxpath.core.models import (
+    CrawlIntent,
+    CrawlTask,
+    DataIntent,
+    ExtractIntent,
+    InfiniteCrawlIntent,
+    ProcessIntent,
+)
+from wxpath.core.ops import get_operator
+from wxpath.core.parser import parse_wxpath_expr
+from wxpath.core.runtime.helpers import parse_html
+from wxpath.hooks.registry import FetchContext, get_hooks
 from wxpath.http.client.crawler import Crawler
 from wxpath.http.client.request import Request
-from wxpath.core.models import CrawlTask, CrawlIntent, ProcessIntent, DataIntent, ExtractIntent, InfiniteCrawlIntent
-from wxpath.core.parser import parse_wxpath_expr
-from wxpath.core.ops import get_operator
-from wxpath.core.runtime.helpers import parse_html
-from wxpath.hooks.registry import get_hooks, FetchContext
 from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
@@ -42,12 +50,22 @@ class HookedEngineBase:
             hook_method = getattr(hook, "post_parse", lambda _, e: e)
             if inspect.iscoroutinefunction(hook_method):
                 elem = await hook_method(
-                    FetchContext(url=task.url, backlink=task.backlink, depth=task.depth, segments=task.segments),
+                    FetchContext(
+                        url=task.url, 
+                        backlink=task.backlink, 
+                        depth=task.depth, 
+                        segments=task.segments
+                    ),
                     elem,
                 )
             else:
                 elem = hook_method(
-                    FetchContext(url=task.url, backlink=task.backlink, depth=task.depth, segments=task.segments),
+                    FetchContext(
+                        url=task.url, 
+                        backlink=task.backlink, 
+                        depth=task.depth, 
+                        segments=task.segments
+                    ),
                     elem,
                 )
             if elem is None:
@@ -252,7 +270,9 @@ class WXPathEngine(HookedEngineBase):
                     mini_queue.append((elem, next_segments))
 
 
-def wxpath_async(path_expr: str, max_depth: int, engine: WXPathEngine = None) -> AsyncGenerator[Any, None]:
+def wxpath_async(path_expr: str, 
+                 max_depth: int, 
+                 engine: WXPathEngine = None) -> AsyncGenerator[Any, None]:
     if engine is None:
         engine = WXPathEngine()
     return engine.run(path_expr, max_depth)

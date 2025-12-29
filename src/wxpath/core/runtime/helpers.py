@@ -1,11 +1,7 @@
 import requests
-from typing import Optional
-
-
 from lxml import etree, html
 
 from wxpath import patches
-from wxpath.hooks.registry import FetchContext
 from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
@@ -32,7 +28,11 @@ def parse_html(content, base_url=None, **elem_kv_pairs) -> html.HtmlElement:
 
 
 def detach_html_root(elem, base_url=None):
-    new_root = etree.HTML(etree.tostring(elem, encoding="utf-8"), parser=patches.html_parser_with_xpath3, base_url=base_url)
+    new_root = etree.HTML(
+        etree.tostring(elem, encoding="utf-8"),
+        parser=patches.html_parser_with_xpath3, 
+        base_url=base_url
+    )
 
     if base_url:
         new_root.getroottree().docinfo.URL = base_url

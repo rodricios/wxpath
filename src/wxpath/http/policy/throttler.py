@@ -1,8 +1,7 @@
 import asyncio
-import time
-
 from abc import ABC, abstractmethod
 from collections import defaultdict
+
 from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)

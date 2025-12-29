@@ -1,5 +1,4 @@
 import random
-import math
 
 
 def exponential_backoff(

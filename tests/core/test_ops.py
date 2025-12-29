@@ -2,8 +2,8 @@ import pytest
 from lxml import html
 
 from wxpath.core import ops
+from wxpath.core.models import CrawlIntent, DataIntent, InfiniteCrawlIntent, ProcessIntent
 from wxpath.core.ops import OPS
-from wxpath.core.models import CrawlIntent, DataIntent, ProcessIntent, InfiniteCrawlIntent
 
 
 # ---------------------------------------------------------------------------

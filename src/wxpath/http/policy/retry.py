@@ -8,10 +8,10 @@ class RetryPolicy:
     def __init__(
         self,
         max_retries: int = 3,
-        retry_statuses: set[int] = {500, 502, 503, 504},
+        retry_statuses: set[int] = None,
     ):
         self.max_retries = max_retries
-        self.retry_statuses = retry_statuses
+        self.retry_statuses = retry_statuses or {500, 502, 503, 504}
 
     def should_retry(self, request, response=None, exception=None) -> bool:
         if request.dont_retry:
