@@ -1,9 +1,14 @@
-import os, json, atexit, threading, queue, time
+import atexit
+import json
+import os
+import queue
+import threading
+import time
 
 from elementpath.serialization import XPathMap, XPathNode
 
-from wxpath.util.logging import get_logger
 from wxpath.hooks.registry import register
+from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
 

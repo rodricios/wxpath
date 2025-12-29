@@ -1,10 +1,12 @@
 
-import inspect, functools, types, collections.abc as cabc
-from typing import Generator, AsyncGenerator
-from enum import Enum, auto
-from contextvars import ContextVar
+import collections.abc as cabc
+import functools
+import inspect
+import types
 from contextlib import contextmanager
-
+from contextvars import ContextVar
+from enum import Enum, auto
+from typing import AsyncGenerator
 
 from wxpath.util.logging import get_logger
 

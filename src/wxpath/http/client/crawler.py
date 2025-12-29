@@ -1,22 +1,25 @@
 import asyncio
-import aiohttp
 import time
 import urllib.parse
 from collections import defaultdict
-from typing import AsyncIterator
 from socket import gaierror
+from typing import AsyncIterator
+
+import aiohttp
 
 from wxpath.http.client.request import Request
 from wxpath.http.client.response import Response
 from wxpath.http.policy.retry import RetryPolicy
 from wxpath.http.policy.throttler import AbstractThrottler, AutoThrottler
-from wxpath.util.logging import get_logger
 from wxpath.http.stats import CrawlerStats, build_trace_config
-
+from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+HEADERS = {"User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" 
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/142.0.0.0 Safari/537.36")}
+
 
 class Crawler:
     def __init__(

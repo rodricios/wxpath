@@ -1,9 +1,6 @@
 import pytest
-from wxpath.core.parser import (
-    _extract_arg_from_url_xpath_op, 
-    parse_wxpath_expr,
-    OPS
-)
+
+from wxpath.core.parser import OPS, _extract_arg_from_url_xpath_op, parse_wxpath_expr
 
 
 def test_parse_wxpath_expr_single_url():
@@ -62,7 +59,8 @@ def test_parse_wxpath_expr_fixed_length_url_preceded_by_slashes():
     with pytest.raises(ValueError) as excinfo:
         parse_wxpath_expr(expr)
     assert \
-        "url() segment cannot have string literal argument and preceding navigation slashes (/|//): //url('http://example2.com/')" \
+        ("url() segment cannot have string literal argument and "
+        "preceding navigation slashes (/|//): //url('http://example2.com/')") \
         in str(excinfo.value)
     
 

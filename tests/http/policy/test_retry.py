@@ -1,7 +1,5 @@
-import pytest
-
-from wxpath.http.policy.retry import RetryPolicy
 from wxpath.http.client.request import Request
+from wxpath.http.policy.retry import RetryPolicy
 
 
 class DummyResponse:

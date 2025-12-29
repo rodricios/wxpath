@@ -8,7 +8,6 @@ This module contains mainly two kinds of functions:
 import re
 from typing import NamedTuple
 
-
 try:
     from enum import StrEnum
 except ImportError:
@@ -104,10 +103,12 @@ def parse_wxpath_expr(path_expr):
             segments.append(Segment(OPS.URL_STR_LIT, _extract_arg_from_url_xpath_op(s)))
         elif s.startswith('///url('):
             segments.append(Segment(OPS.URL_INF, s))
-        elif s.startswith('/url("') or s.startswith('//url("'):  # RAISE ERRORS FROM INVALID SEGMENTS
-            raise ValueError(f"url() segment cannot have string literal argument and preceding navigation slashes (/|//): {s}")
-        elif s.startswith("/url('") or s.startswith("//url('"):  # RAISE ERRORS FROM INVALID SEGMENTS
-            raise ValueError(f"url() segment cannot have string literal argument and preceding navigation slashes (/|//): {s}")
+        elif s.startswith('/url("') or s.startswith('//url("'):
+            raise ValueError("url() segment cannot have string literal "
+                             f"argument and preceding navigation slashes (/|//): {s}")
+        elif s.startswith("/url('") or s.startswith("//url('"):
+            raise ValueError("url() segment cannot have string literal "
+                             f"argument and preceding navigation slashes (/|//): {s}")
         elif s.startswith('/url(') or s.startswith("//url("):
             segments.append(Segment(OPS.URL_EVAL, s))
         elif s.startswith('url('):

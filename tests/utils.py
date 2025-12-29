@@ -1,7 +1,5 @@
 import asyncio
 
-from types import SimpleNamespace
-from typing import Iterable
 from wxpath.http.client.response import Response
 
 
@@ -62,6 +60,6 @@ def _generate_fake_fetch_html(pages):
         try:
             return pages[url]
         except KeyError:
-            raise AssertionError(f"Unexpected URL fetched: {url}")
+            raise AssertionError(f"Unexpected URL fetched: {url}") from None
 
     return _fake_fetch_html

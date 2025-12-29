@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import pytest
 import asyncio
 
-from tests.utils import MockCrawler
+import pytest
 
+from tests.utils import MockCrawler
 from wxpath.core.runtime import engine
 from wxpath.core.runtime.engine import WXPathEngine
 
@@ -606,8 +606,10 @@ def test_engine_run__infinite_crawl_with_inf_filter_before_url_op(monkeypatch):
               <a href="b.html">B</a>
             </body></html>
         """,
-        'http://test/a.html': b"<html><body><main><a href='a1.html'>Depth 1</a></main></body></html>",
-        'http://test/b.html': b"<html><body><main><a href='b1.html'>Depth 1</a></main></body></html>",
+        'http://test/a.html':
+            b"<html><body><main><a href='a1.html'>Depth 1</a></main></body></html>",
+        'http://test/b.html':
+            b"<html><body><main><a href='b1.html'>Depth 1</a></main></body></html>",
         'http://test/a1.html': b"<html><body><a href='a2.html'>Depth 2</a></body></html>",
         'http://test/b1.html': b"<html><body><a href='b2.html'>Depth 2</a></body></html>",
     }
@@ -668,7 +670,7 @@ def test_engine_run___crawl_xpath_crawl_max_depth_1(monkeypatch):
 
 
 # Test evaluate_wxpath_bfs_iter() with filtered (argument) infinite crawl - type 2
-def test_engine_run___crawl_inf_crawl_with_filter(monkeypatch): #infinite_crawl_with_inf_filter_as_url_op_arg(monkeypatch):
+def test_engine_run___crawl_inf_crawl_with_filter(monkeypatch):
     pages = {
         'http://test/': b"""
             <html><body>

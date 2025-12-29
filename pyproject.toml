@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wxpath"
-version = "0.1.0"
+version = "0.1.1"
 description = "wxpath - a declarative web crawler and data extractor"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -22,6 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=7.0", "pytest-asyncio>=0.23"]
+dev = ["ruff"]
 
 [project.scripts]
 wxpath = "wxpath.cli:main"
@@ -36,3 +37,20 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 include = ["wxpath"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+lint.select = [
+    "F",      # pyflakes (unused vars, undefined names, etc.)
+    "E",      # pycodestyle errors
+    "B",      # flake8-bugbear (real footguns)
+    "ASYNC",  # async/await correctness
+    "I",      # isort rules
+    "TID",    # Tidy imports
+    "ICN",    # Import conventions
+]
+
+[tool.ruff.format]
+quote-style = "single"

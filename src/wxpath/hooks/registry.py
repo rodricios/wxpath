@@ -20,7 +20,7 @@ import functools
 from collections import OrderedDict
 from collections.abc import Generator
 from dataclasses import dataclass, field
-from typing import Protocol, List, Optional, Any, Iterable
+from typing import Any, Iterable, List, Optional, Protocol
 
 from lxml import html
 

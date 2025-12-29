@@ -4,7 +4,9 @@ from lxml import etree, html
 
 
 def html_element_repr(self):
-    return f"HtmlElement(tag={self.tag}, depth={self.get('depth', -1)}, base_url={getattr(self, 'base_url', None)!r})"
+    return (f"HtmlElement(tag={self.tag}, "
+            f"depth={self.get('depth', -1)}, "
+            f"base_url={getattr(self, 'base_url', None)!r})")
 
 # Patch lxml.html.HtmlElement.__repr__ to improve debugging with base_url.
 html.HtmlElement.__repr__ = html_element_repr
@@ -17,7 +19,10 @@ class XPath3Element(etree.ElementBase):
         returning the results as a list.
         """
         kwargs.setdefault("parser", XPath3Parser)
-        kwargs.setdefault("uri", getattr(self.getroottree().docinfo, "URL", None) or self.get("base_url"))
+        kwargs.setdefault(
+            "uri", 
+            getattr(self.getroottree().docinfo, "URL", None) or self.get("base_url")
+        )
         return elementpath.select(self, expr, **kwargs)
 
     # --- Convenience property for backward‑compatibility -----------------
