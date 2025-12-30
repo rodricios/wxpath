@@ -7,10 +7,11 @@ By introducing the `url(...)` operator and the `///` syntax, **wxpath**'s engine
 
 NOTE: This project is in early development. Core concepts are stable, but the API and features may change. Please report issues - in particular, deadlocked crawls or unexpected behavior - and any features you'd like to see (no guarantee they'll be implemented).
 
+
 ## Contents
 
 - [Example](#example)
-- [`url(...)` and `///` Explained](#url-and---explained)
+- [`url(...)` and `///url(...)` Explained](#url-and---explained)
 - [General flow](#general-flow)
 - [Asynchronous Crawling](#asynchronous-crawling)
 - [Output types](#output-types)
@@ -19,10 +20,12 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 - [Hooks (Experimental)](#hooks-experimental)
 - [Install](#install)
 - [More Examples](#more-examples)
+- [Comparisons](#comparisons)
 - [Advanced: Engine & Crawler Configuration](#advanced-engine--crawler-configuration)
 - [Project Philosophy](#project-philosophy)
 - [Warnings](#warnings)
 - [License](#license)
+
 
 ## Example
 
@@ -31,7 +34,7 @@ import wxpath
 
 path = """
 url('https://en.wikipedia.org/wiki/Expression_language')
- ///main//a/@href[starts-with(., '/wiki/') and not(contains(., ':'))]/url(.)
+ ///url(//main//a/@href[starts-with(., '/wiki/') and not(contains(., ':'))])
  /map{
     'title':(//span[contains(@class, "mw-page-title-main")]/text())[1],
     'url':string(base-uri(.)),
@@ -66,10 +69,11 @@ The above expression does the following:
 4. Streams the extracted data as it is discovered.
 
 
-## `url(...)` and `///` Explained
+## `url(...)` and `///url(...)` Explained
 
 - `url(...)` is a custom operator that fetches the content of the user-specified or internally generated URL and returns it as an `lxml.html.HtmlElement` for further XPath processing.
-- `///` indicates infinite/recursive traversal. It tells **wxpath** to continue following links indefinitely, up to the specified `max_depth`. Unlike repeated `url()` hops, it allows a single expression to describe unbounded graph exploration. WARNING: Use with caution and constraints (via `max_depth` or XPath predicates) to avoid traversal explosion.
+- `///url(...)` indicates infinite/recursive traversal. It tells **wxpath** to continue following links indefinitely, up to the specified `max_depth`. Unlike repeated `url()` hops, it allows a single expression to describe unbounded graph exploration. WARNING: Use with caution and constraints (via `max_depth` or XPath predicates) to avoid traversal explosion.
+
 
 ## General flow
 
@@ -79,13 +83,12 @@ The above expression does the following:
 
 XPath segments operate on fetched documents (fetched via the immediately preceding `url(...)` operations).
 
-`///` indicates infinite/recursive traversal - it proceeds breadth-first-*ish* up to `max_depth`.
+`///url(...)` indicates infinite/recursive traversal - it proceeds breadth-first-*ish* up to `max_depth`.
 
 Results are yielded as soon as they are ready.
 
 
 ## Asynchronous Crawling
-
 
 **wxpath** is `asyncio/aiohttp`-first, providing an asynchronous API for crawling and extracting data.
 
@@ -96,7 +99,7 @@ from wxpath import wxpath_async
 items = []
 
 async def main():
-    path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(@href[starts-with(., '/wiki/')])//a/@href"
+    path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//@href[starts-with(., '/wiki/')])//a/@href"
     async for item in wxpath_async(path_expr, max_depth=1):
         items.append(item)
 
@@ -105,15 +108,15 @@ asyncio.run(main())
 
 ### Blocking, Concurrent Requests
 
-
 **wxpath** also supports concurrent requests using an asyncio-in-sync pattern, allowing you to crawl multiple pages concurrently while maintaining the simplicity of synchronous code. This is particularly useful for crawls in strictly synchronous execution environments (i.e., not inside an `asyncio` event loop) where performance is a concern.
 
 ```python
 from wxpath import wxpath_async_blocking_iter
 
-path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(@href[starts-with(., '/wiki/')])//a/@href"
+path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//@href[starts-with(., '/wiki/')])//a/@href"
 items = list(wxpath_async_blocking_iter(path_expr, max_depth=1))
 ```
+
 
 ## Output types
 
@@ -138,7 +141,7 @@ The Python API preserves structure by default.
 ```python
 path_expr = """
     url('https://en.wikipedia.org/wiki/Expression_language')
-    ///div[@id='mw-content-text']//a/url(@href)
+    ///url(//div[@id='mw-content-text']//a/@href)
     /map{ 
         'title':(//span[contains(@class, "mw-page-title-main")]/text())[1], 
         'short_description':(//div[contains(@class, "shortdescription")]/text())[1],
@@ -158,15 +161,18 @@ path_expr = """
 # ...]
 ```
 
+
 ## CLI
 
 **wxpath** provides a command-line interface (CLI) to quickly experiment and execute wxpath expressions directly from the terminal. 
 
+The following example demonstrates how to crawl Wikipedia starting from the "Expression language" page, extract links to other wiki pages, and retrieve specific fields from each linked page.
+
+WARNING: Due to the everchanging nature of web content, the output may vary over time.
 ```bash
 > wxpath --depth 1 "\
     url('https://en.wikipedia.org/wiki/Expression_language')\
-    ///div[@id='mw-content-text'] \
-    //a/url(@href[starts-with(., '/wiki/') \
+    ///url(//div[@id='mw-content-text']//a/@href[starts-with(., '/wiki/') \
         and not(matches(@href, '^(?:/wiki/)?(?:Wikipedia|File|Template|Special|Template_talk|Help):'))]) \
     /map{ \
         'title':(//span[contains(@class, 'mw-page-title-main')]/text())[1], \
@@ -238,90 +244,13 @@ pip install wxpath
 
 ## More Examples
 
-```python
-import wxpath
-
-#### EXAMPLE 1 - Simple, single page crawl and link extraction #######
-#
-# Starting from Expression language's wiki, extract all links (hrefs) 
-# from the main section. The `url(...)` operator is used to execute a 
-# web request to the specified URL and return the HTML content.
-#
-path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//main//a/@href"
-
-items = wxpath.wxpath_async_blocking(path_expr)
+See [EXAMPLES.md](EXAMPLES.md) for more usage examples.
 
 
-#### EXAMPLE 2 - Two-deep crawl and link extraction ##################
-#
-# Starting from Expression language's wiki, crawl all child links 
-# starting with '/wiki/', and extract each child's links (hrefs). The
-# `url(...)` operator is pipe'd arguments from the evaluated XPath.
-#
-path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//url(@href[starts-with(., '/wiki/')])//a/@href"
+## Comparisons
 
-#### EXAMPLE 3 - Infinite crawl with BFS tree depth limit ############
-#
-# Starting from Expression language's wiki, infinitely crawl all child
-# links (and child's child's links recursively). The `///` syntax is
-# used to indicate an infinite crawl. 
-# Returns lxml.html.HtmlElement objects.
-#
-path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///main//a/url(@href)"
+See [COMPARISONS.md](COMPARISONS.md) for comparisons with other web-scraping tools.
 
-# The same expression written differently:
-path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//main//a/@href)"
-
-# Modify (inclusive) max_depth to limit the BFS tree (crawl depth).
-items = wxpath.wxpath_async_blocking(path_expr, max_depth=1)
-
-#### EXAMPLE 4 - Infinite crawl with field extraction ################
-#
-# Infinitely crawls Expression language's wiki's child links and 
-# childs' child links (recursively) and then, for each child link 
-# crawled, extracts objects with the named fields as a dict.
-#
-path_expr = """
-    url('https://en.wikipedia.org/wiki/Expression_language')
-     ///main//a/url(@href)
-     /map {
-        'title':(//span[contains(@class, "mw-page-title-main")]/text())[1], 
-        'short_description':(//div[contains(@class, "shortdescription")]/text())[1],
-        'url'://link[@rel='canonical']/@href[1],
-        'backlink':wx:backlink(.),
-        'depth':wx:depth(.)
-    }
-"""
-
-# Under the hood of wxpath.core.wxpath, we generate `segments` list, 
-# revealing the operations executed to accomplish the crawl.
-# >> segments = wxpath.core.parser.parse_wxpath_expr(path_expr); 
-# >> segments
-# [Segment(op='url', value='https://en.wikipedia.org/wiki/Expression_language'),
-#  Segment(op='url_inf', value='///url(//main//a/@href)'),
-#  Segment(op='xpath', value='/map {        \'title\':(//span[contains(@class, "mw-page-title-main")]/text())[1],         \'short_description\':(//div[contains(@class, "shortdescription")]/text())[1],        \'url\'://link[@rel=\'canonical\']/@href[1]    }')]
-
-#### EXAMPLE 5 = Seeding from XPath function expression + mapping operator (`!`)
-#
-# Functionally create 10 Amazon book search result page URLs, map each URL to 
-# the url(.) operator, and for each page, extract the title, price, and link of
-# each book listed.
-# 
-base_url = "https://www.amazon.com/s?k=books&i=stripbooks&page="
-
-path_expr = f"""
-    (1 to 10) ! ('{base_url}' || .) !
-    url(.)
-        //span[@data-component-type='s-search-results']//*[@role='listitem']
-            /map {{
-                'title': (.//h2/span/text())[1],
-                'price': (.//span[@class='a-price']/span[@class='a-offscreen']/text())[1],
-                'link': (.//a[@aria-describedby='price-link']/@href)[1]
-            }}
-"""
-
-items = list(wxpath.wxpath_async_blocking_iter(path_expr, max_depth=1))
-```
 
 ## Advanced: Engine & Crawler Configuration
 
@@ -346,7 +275,7 @@ engine = WXPathEngine(
     crawler=crawler,
 )
 
-path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///main//a/url(@href)"
+path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//url(//main//a/@href)"
 
 items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 ```
@@ -374,12 +303,14 @@ items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 - Automatic proxy rotation
 - Browser-based rendering (JavaScript execution)
 
+
 ## WARNINGS!!!
 
 - Be respectful when crawling websites. A scrapy-inspired throttler is enabled by default.
 - Recursive (`///`) crawls require user discipline to avoid unbounded expansion (traversal explosion).
 - Deadlocks and hangs are possible in certain situations (e.g., all tasks waiting on blocked requests). Please report issues if you encounter such behavior.
 - Consider using timeouts, `max_depth`, and XPath predicates and filters to limit crawl scope.
+
 
 ## License
 

@@ -19,7 +19,7 @@ from wxpath.core.models import (
     Intent,
     ProcessIntent,
 )
-from wxpath.core.parser import OPS, Segment, extract_url_op_arg
+from wxpath.core.parser import OPS, Segment, UrlInfAndXpathValue, XpathValue
 from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
@@ -55,14 +55,25 @@ def get_operator(name: OPS) -> Callable[[html.HtmlElement, list[Segment], int], 
         raise ValueError(f"Unknown operation: {name}")
     return HANDLERS[name]
 
+
 @_op(OPS.URL_STR_LIT)
 def _handle_url_str_lit(curr_elem: html.HtmlElement, 
                         curr_segments: list[Segment], 
                         curr_depth: int, **kwargs) -> Iterable[Intent]:
     op, value = curr_segments[0]
 
-    log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": value})
-    yield CrawlIntent(url=value, next_segments=curr_segments[1:])
+    log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": value.target})
+
+    next_segments = curr_segments[1:]
+
+    if value.follow:
+        _segments = [
+            (OPS.URL_INF_AND_XPATH, UrlInfAndXpathValue('', value.target, value.follow))
+        ] + next_segments
+        
+        yield CrawlIntent(url=value.target, next_segments=_segments)
+    else:
+        yield CrawlIntent(url=value.target, next_segments=next_segments)
 
 
 @_op(OPS.URL_EVAL)
@@ -72,14 +83,14 @@ def _handle_url_eval(curr_elem: html.HtmlElement | str,
                      **kwargs) -> Iterable[Intent]:
     op, value = curr_segments[0]
 
-    _path_exp = extract_url_op_arg(value)
+    _path_exp = value.expr
 
     if isinstance(curr_elem, str):
         # TODO: IMO, ideally, wxpath grammar should not be checked/validated/enforced 
         # in ops.py. It should instead be validated in the parser.
         if _path_exp not in {'.', 'self::node()'}:
             raise ValueError("Only '.' or 'self::node()' is supported in url() segments "
-                             f"when prior xpath operation results in a string. Got: {value}")
+                             f"when prior xpath operation results in a string. Got: {_path_exp}")
 
         urls = [urljoin(getattr(curr_elem, 'base_url', None) or '', curr_elem)]
     else:
@@ -109,15 +120,18 @@ def _handle_url_inf(curr_elem: html.HtmlElement,
     """
     op, value = curr_segments[0]
 
-    _path_exp = extract_url_op_arg(value)
+    _path_exp = value.expr
 
     urls = get_absolute_links_from_elem_and_xpath(curr_elem, _path_exp)
 
-    log.debug("found urls", extra={"depth": curr_depth, "op": op, "url": getattr(curr_elem, 'base_url', None)})
+    log.debug("found urls", 
+              extra={"depth": curr_depth, "op": op, "url": getattr(curr_elem, 'base_url', None)})
 
     tail_segments = curr_segments[1:]
     for url in dict.fromkeys(urls):
-        _segments = [(OPS.URL_INF_AND_XPATH, (url, value))] + tail_segments
+        _segments = [
+            (OPS.URL_INF_AND_XPATH, UrlInfAndXpathValue('', url, _path_exp))
+        ] + tail_segments
         
         log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": url})
 
@@ -134,9 +148,6 @@ def _handle_url_inf_and_xpath(curr_elem: html.HtmlElement,
     no explicit wxpath expression that generates this operation.
     """
     op, value = curr_segments[0]
-    url, prev_op_value = value
-
-    log.debug("handling url inf and xpath", extra={"curr_segments": curr_segments, "depth": curr_depth, "op": op, "url": url, "prev_op_value": prev_op_value, "curr_elem": curr_elem, "curr_elem.base_url": getattr(curr_elem, 'base_url', None)})
 
     try:
         if curr_elem is None:
@@ -149,13 +160,16 @@ def _handle_url_inf_and_xpath(curr_elem: html.HtmlElement,
             yield ExtractIntent(elem=curr_elem, next_segments=next_segments)
 
         # For url_inf, also re-enqueue for further infinite expansion
-        _segments = [(OPS.URL_INF, prev_op_value)] + next_segments
+        _segments = [(OPS.URL_INF, XpathValue('', value.expr))] + next_segments
         crawl_intent = InfiniteCrawlIntent(elem=curr_elem, next_segments=_segments)
-        log.debug("queueing InfiniteCrawlIntent", extra={"depth": curr_depth, "op": op, "url": url, "crawl_intent": crawl_intent})
+        log.debug("queueing InfiniteCrawlIntent", 
+                  extra={"depth": curr_depth, "op": op, 
+                         "url": value.target, "crawl_intent": crawl_intent})
         yield crawl_intent
 
     except Exception:
-        log.exception("error fetching url", extra={"depth": curr_depth, "op": op, "url": url})
+        log.exception("error fetching url", 
+                      extra={"depth": curr_depth, "op": op, "url": value.target})
 
 
 @_op(OPS.XPATH)
@@ -168,6 +182,7 @@ def _handle_xpath(curr_elem: html.HtmlElement,
     Also handles wxpath-specific macro expansions like wx:backlink() or wx:depth().
     """
     _, value = curr_segments[0]
+    expr = value.expr
     if curr_elem is None:
         raise ValueError("Element must be provided when path_expr does not start with 'url()'.")
     base_url = getattr(curr_elem, 'base_url', None)
@@ -177,12 +192,12 @@ def _handle_xpath(curr_elem: html.HtmlElement,
     # We use the root tree's depth and not curr_depth because curr_depth accounts for a +1 
     # increment after each url*() hop
     _depth_str = f"number({curr_elem.getroottree().getroot().get('depth')})"
-    value = value.replace('wx:backlink()', _backlink_str)
-    value = value.replace('wx:backlink(.)', _backlink_str)
-    value = value.replace('wx:depth()', _depth_str)
-    value = value.replace('wx:depth(.)', _depth_str)
+    expr = expr.replace('wx:backlink()', _backlink_str)
+    expr = expr.replace('wx:backlink(.)', _backlink_str)
+    expr = expr.replace('wx:depth()', _depth_str)
+    expr = expr.replace('wx:depth(.)', _depth_str)
 
-    elems = curr_elem.xpath3(value)
+    elems = curr_elem.xpath3(expr)
     
     next_segments = curr_segments[1:]
     for elem in elems:
@@ -212,7 +227,7 @@ def _handle_xpath_fn_map_frag(curr_elem: html.HtmlElement | str,
 
     result = elementpath.select(
         curr_elem,
-        value,
+        value.expr,
         parser=XPath3Parser,
         item='' if curr_elem is None else None
     )

@@ -7,13 +7,11 @@ import time
 
 from elementpath.serialization import XPathMap, XPathNode
 
-from wxpath.hooks.registry import register
 from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
 
 
-@register
 class SerializeXPathMapAndNodeHook:
     """
     Serialize XPathMap and XPathNode objects to plain Python types.

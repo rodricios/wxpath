@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wxpath"
-version = "0.1.1"
+version = "0.2.0"
 description = "wxpath - a declarative web crawler and data extractor"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -16,8 +16,8 @@ license-files = ["LICENSE"]
 dependencies = [
     "requests>=2.0",
     "lxml>=4.0",
-    "elementpath>=5.0.0",
-    "aiohttp>=3.8.0"
+    "elementpath>=5.0.0,<=5.0.3",
+    "aiohttp>=3.8.0,<=3.12.15"
 ]
 
 [project.optional-dependencies]
@@ -33,10 +33,10 @@ addopts = "-ra -q"
 testpaths = ["tests"]
 
 [tool.setuptools]
-package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-include = ["wxpath"]
+where = ["src"]
+include = ["wxpath", "wxpath.*"]
 
 [tool.ruff]
 target-version = "py311"
