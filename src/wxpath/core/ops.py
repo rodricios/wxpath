@@ -62,7 +62,7 @@ def _handle_url_str_lit(curr_elem: html.HtmlElement,
                         curr_depth: int, **kwargs) -> Iterable[Intent]:
     op, value = curr_segments[0]
 
-    log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": value})
+    log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": value.target})
 
     next_segments = curr_segments[1:]
 
@@ -90,7 +90,7 @@ def _handle_url_eval(curr_elem: html.HtmlElement | str,
         # in ops.py. It should instead be validated in the parser.
         if _path_exp not in {'.', 'self::node()'}:
             raise ValueError("Only '.' or 'self::node()' is supported in url() segments "
-                             f"when prior xpath operation results in a string. Got: {value}")
+                             f"when prior xpath operation results in a string. Got: {_path_exp}")
 
         urls = [urljoin(getattr(curr_elem, 'base_url', None) or '', curr_elem)]
     else:
