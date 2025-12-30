@@ -5,7 +5,7 @@ import sys
 from wxpath.core.ops import WxStr
 from wxpath.core.parser import parse_wxpath_expr
 from wxpath.core.runtime.engine import WXPathEngine, wxpath_async_blocking_iter
-from wxpath.hooks import builtin  # noqa: F401
+from wxpath.hooks import builtin, registry
 
 
 def _simplify(obj):
@@ -30,6 +30,7 @@ def _simplify(obj):
 
 
 def main():
+    registry.register(builtin.SerializeXPathMapAndNodeHook)
     parser = argparse.ArgumentParser(description="Run wxpath expression.")
     parser.add_argument("expression", help="The wxpath expression")
     parser.add_argument("--depth", type=int, default=1, help="Recursion depth")
@@ -53,8 +54,8 @@ def main():
         print("parsed expression:", parse_wxpath_expr(args.expression))
 
     if args.debug:
-        from wxpath import configure_logging, logging
-        configure_logging(logging.DEBUG)
+        from wxpath import configure_logging
+        configure_logging('DEBUG')
 
     engine = WXPathEngine(
         concurrency=args.concurrency,

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wxpath"
-version = "0.1.1"
+version = "0.2.0"
 description = "wxpath - a declarative web crawler and data extractor"
 readme = "README.md"
 requires-python = ">=3.9"

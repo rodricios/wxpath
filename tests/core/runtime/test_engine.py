@@ -77,7 +77,7 @@ def test_engine_run__crawl__crawl_with_xpath(monkeypatch):
     )
     eng = engine.WXPathEngine()
 
-    expr = "url('http://test/')//url(@href)"
+    expr = "url('http://test/')//url(//@href)"
 
     
     results = asyncio.run(
@@ -92,6 +92,66 @@ def test_engine_run__crawl__crawl_with_xpath(monkeypatch):
         "http://test/b.html",
     ]
     assert all(e.get("depth") == "1" for e in results)
+
+
+def test_engine_run__crawl_with_follow__extract(monkeypatch):
+    """
+    There are multiple links on the page; only one should be followed until the end.
+    """
+    pages = {
+        "http://test/": b"""
+            <html><body>
+              <div class="quote"><p>"The only true wisdom is in knowing you know nothing."</p></div>
+              <a class="next" href="a.html">A</a>
+              <a href="X.html">X</a>
+            </body></html>
+        """,
+        "http://test/a.html": b"""
+            <html><body>
+              <div class="quote"><p>"Knowing yourself is the beginning of all wisdom."</p></div>
+              <a class="next" href="b.html">B</a>
+              <a href="X.html">X</a>
+            </body></html>
+        """,
+        "http://test/b.html": b"""
+            <html><body>
+              <div class="quote">
+                <p>"There is only one good, knowledge, and one evil, ignorance."</p>
+              </div>
+              <a href="X.html">X</a>
+            </body></html>
+        """,
+        "http://test/X.html": b"""
+            <html><body>
+              <div class="quote">
+                <p>"You shall not pass!"</p>
+              </div>
+            </body></html>
+        """,
+    }
+
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+    )
+    eng = engine.WXPathEngine()
+
+    expr = """
+        url('http://test/', follow=//a[@class='next']/@href)
+    """
+    
+    results = asyncio.run(
+        _collect_async(
+            eng.run(expr, max_depth=2)
+        )
+    )
+
+    assert [e.base_url for e in results] == [
+        "http://test/",
+        "http://test/a.html",
+        "http://test/b.html",
+    ]
 
 
 def test_engine_run__crawl__crawl_with_xpath_2(monkeypatch):
@@ -117,7 +177,7 @@ def test_engine_run__crawl__crawl_with_xpath_2(monkeypatch):
     )
     eng = engine.WXPathEngine()
 
-    expr = "url('http://test/')//url(main//a/@href)"
+    expr = "url('http://test/')//url(//main//a/@href)"
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=1)
@@ -158,7 +218,7 @@ def test_engine_run__crawl__crawl_with_xpath_3(monkeypatch):
     )
     eng = engine.WXPathEngine()
 
-    expr = "url('http://test/')//url(main//a/@href)"
+    expr = "url('http://test/')//url(//main//a/@href)"
     results = asyncio.run(
         _collect_async(
             eng.run(expr, max_depth=1)
@@ -260,7 +320,7 @@ def test_engine_run__crawl__crawl__crawl(monkeypatch):
       'http://test/lvl1.html': b"<html><body><a href='lvl2.html'>L2</a></body></html>",
       'http://test/lvl2.html': b"<html><body><p>Reached L2</p></body></html>",
     }
-    expr = "url('http://test/')//url(@href)//url(@href)"
+    expr = "url('http://test/')//url(//@href)//url(//@href)"
 
     monkeypatch.setattr(
         engine,
@@ -291,7 +351,7 @@ def test_engine_run__crawl__crawl_with_xpath__xpath(monkeypatch):
         'http://test/b.html': b"<html><body><a href='page2.html'>L2</a></body></html>",
     }
     
-    expr = "url('http://test/')//url(@href)//a/@href"
+    expr = "url('http://test/')//url(//@href)//a/@href"
     monkeypatch.setattr(
         engine,
         "Crawler",
@@ -319,7 +379,7 @@ def test_engine_run__crawl__crawl_with_xpath__crawl_with_xpath__xpath(monkeypatc
       'http://test/lvl3.html': b"<html><body><p>Reached L3</p></body></html>",
     }
 
-    expr = "url('http://test/')//url(@href)//url(@href)//a/@href"
+    expr = "url('http://test/')//url(//@href)//url(//@href)//a/@href"
 
     monkeypatch.setattr(
         engine,
@@ -345,7 +405,7 @@ def test_engine_run__crawl_four_levels_and_query_and_max_depth_2(monkeypatch):
       'http://test/lvl4.html': b"<html><body><a href='lvl5.html'>L4</a></body></html>",
     }
 
-    expr = "url('http://test/')//url(@href)//url(@href)//a/@href"
+    expr = "url('http://test/')//url(//@href)//url(//@href)//a/@href"
     monkeypatch.setattr(
         engine,
         "Crawler",
@@ -376,7 +436,7 @@ def test_engine_run__filtered_crawl(monkeypatch):
       'http://test/lvl3.html': b"<html><body><p>Reached L3</p></body></html>",
     }
     
-    expr = "url('http://test/')//url(@href[starts-with(., 'lvl1a')])//a/@href"
+    expr = "url('http://test/')//url(//@href[starts-with(., 'lvl1a')])//a/@href"
     monkeypatch.setattr(
         engine,
         "Crawler",
@@ -407,7 +467,7 @@ def test_engine_run__infinite_crawl_max_depth_uncapped(monkeypatch):
         'http://test/b1.html': b"<html><body></body></html>",
     }
     
-    expr = "url('http://test/')///url(@href)"
+    expr = "url('http://test/')///url(//@href)"
     monkeypatch.setattr(
         engine,
         "Crawler",
@@ -442,7 +502,7 @@ def test_engine_run__infinite_crawl_max_depth_1(monkeypatch):
         'http://test/a1.html': b"<html><body><a href='a2.html'>L3</a></body></html>",
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
-    expr = "url('http://test/')///url(@href)"
+    expr = "url('http://test/')///url(//@href)"
     monkeypatch.setattr(
         engine,
         "Crawler",
@@ -475,7 +535,7 @@ def test_engine_run__infinite_crawl__query__max_depth_1(monkeypatch):
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
     
-    expr = "url('http://test/')///url(@href)//a/@href"
+    expr = "url('http://test/')///url(//@href)//a/@href"
     monkeypatch.setattr(
         engine,
         "Crawler",
@@ -509,7 +569,7 @@ def test_engine_run__crawl__inf_crawl__query__max_depth_2(monkeypatch):
         'http://test/a1.html': b"<html><body><a href='a2.html'>L3</a></body></html>",
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
-    expr = "url('http://test/')///url(@href)//a/@href"
+    expr = "url('http://test/')///url(//@href)//a/@href"
     
     monkeypatch.setattr(
         engine,
@@ -545,7 +605,7 @@ def test_engine_run__crawl__inf_crawl__query__dupe_link__max_depth_2(monkeypatch
         'http://test/a1.html': b"<html><body><a href='a2.html'>L3</a></body></html>",
         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
     }
-    expr = "url('http://test/')///url(@href)//a/@href"
+    expr = "url('http://test/')///url(//@href)//a/@href"
     
     monkeypatch.setattr(
         engine,
@@ -597,76 +657,80 @@ def test_engine_run__xpath_fn_map_frag__crawl(monkeypatch):
     }
 
 
+# NOTE: I'm considering removing the wxpath expr equality of
+# ///main//a/url(@href) and url(//main//a/@href)
 # Test evaluate_wxpath_bfs_iter() with filtered (argument) infinite crawl - type 1
-def test_engine_run__infinite_crawl_with_inf_filter_before_url_op(monkeypatch):
-    pages = {
-        'http://test/': b"""
-            <html><body>
-              <main><a href="a.html">A</a></main>
-              <a href="b.html">B</a>
-            </body></html>
-        """,
-        'http://test/a.html':
-            b"<html><body><main><a href='a1.html'>Depth 1</a></main></body></html>",
-        'http://test/b.html':
-            b"<html><body><main><a href='b1.html'>Depth 1</a></main></body></html>",
-        'http://test/a1.html': b"<html><body><a href='a2.html'>Depth 2</a></body></html>",
-        'http://test/b1.html': b"<html><body><a href='b2.html'>Depth 2</a></body></html>",
-    }
+# def test_engine_run__infinite_crawl_with_inf_filter_before_url_op(monkeypatch):
+#     pages = {
+#         'http://test/': b"""
+#             <html><body>
+#               <main><a href="a.html">A</a></main>
+#               <a href="b.html">B</a>
+#             </body></html>
+#         """,
+#         'http://test/a.html':
+#             b"<html><body><main><a href='a1.html'>Depth 1</a></main></body></html>",
+#         'http://test/b.html':
+#             b"<html><body><main><a href='b1.html'>Depth 1</a></main></body></html>",
+#         'http://test/a1.html': b"<html><body><a href='a2.html'>Depth 2</a></body></html>",
+#         'http://test/b1.html': b"<html><body><a href='b2.html'>Depth 2</a></body></html>",
+#     }
     
-    expr = "url('http://test/')///main/a/url(@href)"
+#     expr = "url('http://test/')///main/a/url(//@href)"
 
-    monkeypatch.setattr(
-        engine,
-        "Crawler",
-        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
-    )
-    eng = engine.WXPathEngine()
-    results = asyncio.run(
-        _collect_async(
-            eng.run(expr, max_depth=2)
-        )
-    )
+#     monkeypatch.setattr(
+#         engine,
+#         "Crawler",
+#         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+#     )
+#     eng = engine.WXPathEngine()
+#     results = asyncio.run(
+#         _collect_async(
+#             eng.run(expr, max_depth=2)
+#         )
+#     )
     
-    assert len(results) == 2
-    assert [e.base_url for e in results] == [
-        'http://test/a.html',
-        'http://test/a1.html'
-    ]
+#     assert len(results) == 2
+#     assert [e.base_url for e in results] == [
+#         'http://test/a.html',
+#         'http://test/a1.html'
+#     ]
     
 
+# NOTE: I'm considering removing the wxpath expr equality of
+# ///main//a/url(@href) and url(//main//a/@href)
 # Test evaluate_wxpath_bfs_iter() with filtered (argument) infinite crawl - type 1
-def test_engine_run___crawl_xpath_crawl_max_depth_1(monkeypatch):
-    pages = {
-        'http://test/': b"""
-            <html><body>
-              <main><a href="a.html">A</a></main>
-              <a href="b.html">B</a>
-            </body></html>
-        """,
-        'http://test/a.html': b"<html><body><main><a href='a1.html'>L2</a></main></body></html>",
-        'http://test/b.html': b"<html><body><main><a href='b1.html'>L2</a></main></body></html>",
-        'http://test/a1.html': b"<html><body><a href='a2.html'>L3</a></body></html>",
-        'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
-    }
-    expr = "url('http://test/')///main/a/url(@href)"
+# def test_engine_run___crawl_xpath_crawl_max_depth_1(monkeypatch):
+#     pages = {
+#         'http://test/': b"""
+#             <html><body>
+#               <main><a href="a.html">A</a></main>
+#               <a href="b.html">B</a>
+#             </body></html>
+#         """,
+#         'http://test/a.html': b"<html><body><main><a href='a1.html'>L2</a></main></body></html>",
+#         'http://test/b.html': b"<html><body><main><a href='b1.html'>L2</a></main></body></html>",
+#         'http://test/a1.html': b"<html><body><a href='a2.html'>L3</a></body></html>",
+#         'http://test/b1.html': b"<html><body><a href='b2.html'>L3</a></body></html>",
+#     }
+#     expr = "url('http://test/')///main/a/url(//@href)"
 
-    monkeypatch.setattr(
-        engine,
-        "Crawler",
-        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
-    )
-    eng = engine.WXPathEngine()
-    results = asyncio.run(
-        _collect_async(
-            eng.run(expr, max_depth=1)
-        )
-    )
-    assert len(results) == 1
-    assert results[0].get('depth') == '1'
-    assert [e.base_url for e in results] == [
-        'http://test/a.html'
-    ]
+#     monkeypatch.setattr(
+#         engine,
+#         "Crawler",
+#         lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+#     )
+#     eng = engine.WXPathEngine()
+#     results = asyncio.run(
+#         _collect_async(
+#             eng.run(expr, max_depth=1)
+#         )
+#     )
+#     assert len(results) == 1
+#     assert results[0].get('depth') == '1'
+#     assert [e.base_url for e in results] == [
+#         'http://test/a.html'
+#     ]
 
 
 # Test evaluate_wxpath_bfs_iter() with filtered (argument) infinite crawl - type 2
@@ -721,7 +785,7 @@ async def test_engine_infinite_crawl_max_depth(monkeypatch):
     )
 
     eng = WXPathEngine(concurrency=2)
-    results = await _collect_async(eng.run("url('http://root/')///url(@href)", max_depth=1))
+    results = await _collect_async(eng.run("url('http://root/')///url(//@href)", max_depth=1))
 
     urls = [r.base_url for r in results]
     assert "http://root/a.html" in urls
@@ -745,7 +809,7 @@ async def test_engine_deduplicates_urls(monkeypatch):
     )
 
     eng = WXPathEngine(concurrency=2)
-    results = await _collect_async(eng.run("url('http://root/')///url(@href)", max_depth=1))
+    results = await _collect_async(eng.run("url('http://root/')///url(//@href)", max_depth=1))
 
     urls = [r.base_url for r in results]
     # Only one instance of the duplicate URL should be returned
@@ -991,7 +1055,8 @@ async def test_engine_deduplicates_urls(monkeypatch):
 #     Engine should not fetch the same URL twice.
 #     """
 #     pages = {
-#         "http://test.com": b'<html><body><a href="/page">1</a><a href="/page">2</a></body></html>',
+#         "http://test.com": 
+#           b'<html><body><a href="/page">1</a><a href="/page">2</a></body></html>',
 #         "http://test.com/page": b'<html><body>content</body></html>',
 #     }
 #     crawler = MockCrawler(pages=pages)
