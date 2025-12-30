@@ -3,7 +3,9 @@
 This document will provide comparisons between **wxpath** and other web-scraping tools.
 
 
-## Scrapy
+## Scraping Quotes
+
+### Scrapy 
 
 From Scrapy's official [documentation](https://docs.scrapy.org/en/latest/intro/overview.html#walk-through-of-an-example-spider), here is an example of a simple spider that scrapes quotes from a website and writes to a file.
 
@@ -11,7 +13,6 @@ Scrapy:
 
 ```python
 import scrapy
-
 
 class QuotesSpider(scrapy.Spider):
     name = "quotes"
@@ -29,7 +30,6 @@ class QuotesSpider(scrapy.Spider):
         next_page = response.css('li.next a::attr("href")').get()
         if next_page is not None:
             yield response.follow(next_page, self.parse)
-
 ```
 
 Then from the command line, you would run:
@@ -39,7 +39,7 @@ scrapy runspider quotes_spider.py -o quotes.jsonl
 ```
 
 
-## wxpath
+### wxpath
 
 **wxpath** gives you two options: write directly from a Python script or from the command line.
 
@@ -70,4 +70,29 @@ url('https://quotes.toscrape.com/tag/humor/', follow=//li[@class='next']/a/@href
       'author': (./span/small/text())[1], \
       'text': (./span[@class='text']/text())[1] \
       }" > quotes.jsonl
+```
+
+
+### Requests + `lxml.html`
+
+Using `requests` and `lxml.html`, you would write something like this:
+
+```python
+import requests
+from lxml import html
+from urllib.parse import urljoin
+
+url = "https://quotes.toscrape.com/tag/humor/"
+
+while url:
+    response = requests.get(url)
+    tree = html.fromstring(response.content)
+    quotes = tree.xpath("//div[@class='quote']")
+    for quote in quotes:
+        author = quote.xpath("span/small/text()")[0]
+        text = quote.xpath("span[@class='text']/text()")[0]
+        print({"author": author, "text": text})
+    next_page = tree.xpath('//li[@class="next"]/a/@href')
+    url = next_page[0] if next_page else None
+    url = urljoin(response.url, url) if url else None
 ```

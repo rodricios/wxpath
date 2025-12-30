@@ -151,7 +151,9 @@ def parse_wxpath_expr(path_expr):
     #             OPS.URL_INF,
     #             XpathValue(
     #                 _value='', 
-    #                 expr=f'{inf_xpath_value.expr}{url_eval_traveral_fragment}{url_eval_value.expr}'
+    #                 expr=(f'{inf_xpath_value.expr}'
+    #                       f'{url_eval_traveral_fragment}'
+    #                       f'{url_eval_value.expr}')
     #             )
     #         )
     #         segments.pop(i)
