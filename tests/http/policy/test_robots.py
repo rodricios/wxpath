@@ -34,7 +34,8 @@ from wxpath.http.policy.robots import UrllibRobotParser
         ),
         (
             "User-agent: *\nDisallow: /private",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+            ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+             "(KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"),
             "http://example.com/private/page",
             False,
         ),

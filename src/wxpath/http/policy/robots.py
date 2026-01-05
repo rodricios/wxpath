@@ -1,6 +1,6 @@
 import asyncio
-import urllib.parse, urllib.robotparser
-from collections import defaultdict
+import urllib.parse
+import urllib.robotparser
 from typing import Dict
 
 import aiohttp

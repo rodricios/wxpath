@@ -9,8 +9,8 @@ import aiohttp
 
 from wxpath.http.client.request import Request
 from wxpath.http.client.response import Response
-from wxpath.http.policy.robots import RobotsTxtPolicy
 from wxpath.http.policy.retry import RetryPolicy
+from wxpath.http.policy.robots import RobotsTxtPolicy
 from wxpath.http.policy.throttler import AbstractThrottler, AutoThrottler
 from wxpath.http.stats import CrawlerStats, build_trace_config
 from wxpath.util.logging import get_logger
