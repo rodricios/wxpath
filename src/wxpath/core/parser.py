@@ -30,17 +30,17 @@ class UrlValue(ValueBase):
 
 
 @dataclass(frozen=True, slots=True)
-class XpathValue(ValueBase):
+class XPathValue(ValueBase):
     expr: str
 
 
 @dataclass(frozen=True, slots=True)
-class UrlInfAndXpathValue(ValueBase):
+class UrlInfAndXPathValue(ValueBase):
     target: str
     expr: str
 
 
-Value: TypeAlias = UrlValue | XpathValue | UrlInfAndXpathValue
+Value: TypeAlias = UrlValue | XPathValue | UrlInfAndXPathValue
 
 
 class Segment(NamedTuple):
@@ -94,6 +94,7 @@ def _scan_path_expr(path_expr: str) -> list[str]:
                 partitions.append(path_expr[i:next_pos])
             i = next_pos
 
+    partitions = [p.strip() for p in partitions if p.strip()]
     return partitions
 
 
@@ -118,26 +119,27 @@ def parse_wxpath_expr(path_expr):
                 Segment(
                     OPS.URL_INF, 
                     # XpathValue(extract_url_op_arg(s))
-                    XpathValue(_value=s, expr=_extract_arg_from_url_xpath_op(s))
+                    XPathValue(_value=s, expr=_extract_arg_from_url_xpath_op(s))
                     )
                 )
-        elif s.startswith('/url("') or s.startswith('//url("'):
+        elif s.startswith('/url("') or s.startswith("/url('"):
             raise ValueError("url() segment cannot have string literal "
-                             f"argument and preceding navigation slashes (/|//): {s}")
-        elif s.startswith("/url('") or s.startswith("//url('"):
+                             f"argument and preceding single navigation slashes (/): {s}")
+        elif s.startswith('//url("') or s.startswith("//url('"):
+            # if  i > 0:
             raise ValueError("url() segment cannot have string literal "
-                             f"argument and preceding navigation slashes (/|//): {s}")
+                            f"argument and preceding navigation slashes (//): {s}")
         elif s.startswith('/url(') or s.startswith("//url("):
-            segments.append(Segment(OPS.URL_EVAL, XpathValue(s, _extract_arg_from_url_xpath_op(s))))
+            segments.append(Segment(OPS.URL_EVAL, XPathValue(s, _extract_arg_from_url_xpath_op(s))))
         elif s.startswith('url('):
-            segments.append(Segment(OPS.URL_EVAL, XpathValue(s, _extract_arg_from_url_xpath_op(s))))
+            segments.append(Segment(OPS.URL_EVAL, XPathValue(s, _extract_arg_from_url_xpath_op(s))))
         elif s.startswith('///'):
             raise ValueError(f"xpath segment cannot have preceding triple slashes : {s}")
             # segments.append(Segment(OPS.INF_XPATH, XpathValue(s, "//" + s[3:])))
         elif s.endswith('!'):
-            segments.append(Segment(OPS.XPATH_FN_MAP_FRAG, XpathValue(s, s[:-1])))
+            segments.append(Segment(OPS.XPATH_FN_MAP_FRAG, XPathValue(s, s[:-1])))
         else:
-            segments.append(Segment(OPS.XPATH, XpathValue(s, s)))
+            segments.append(Segment(OPS.XPATH, XPathValue(s, s)))
     
     ## EXPERIMENTAL
     ## Disabled for now
@@ -178,6 +180,12 @@ def parse_wxpath_expr(path_expr):
     # Raises if expr ends with XPATH_FN_MAP_FRAG
     if segments and segments[-1][0] == OPS.XPATH_FN_MAP_FRAG:
         raise ValueError("Path expr cannot end with !")
+    
+    # Raises if `//url(...)` (URL_INF) has '.' as its expression
+    if len([op for op, val in segments if op == OPS.URL_INF and val.expr == '.']) > 0:
+        raise ValueError("`//url(...)` (URL_INF) cannot have the context item expression '.'"
+                         " as its argument")
+
     return segments
 
 

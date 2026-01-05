@@ -4,7 +4,7 @@ from lxml import html
 from wxpath.core import ops
 from wxpath.core.models import CrawlIntent, DataIntent, InfiniteCrawlIntent, ProcessIntent
 from wxpath.core.ops import OPS
-from wxpath.core.parser import UrlInfAndXpathValue, XpathValue
+from wxpath.core.parser import UrlInfAndXPathValue, XPathValue
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ def test_xpath_fn_map_frag_yields_data_intents(monkeypatch):
 
     op = ops.get_operator(OPS.XPATH_FN_MAP_FRAG)
     results = list(op(None, [(OPS.XPATH_FN_MAP_FRAG, 
-                              XpathValue('', "(1 to 3)"))] + rest_segments, 
+                              XPathValue('', "(1 to 3)"))] + rest_segments, 
                               0))
 
     assert len(results) == 3
@@ -55,10 +55,10 @@ def test_url_eval_yields_crawl_intents(monkeypatch):
     monkeypatch.setattr(ops, "get_absolute_links_from_elem_and_xpath", fake_links)
 
     elem = html.fromstring("<html><body></body></html>", base_url="http://test/")
-    rest_segments = [(OPS.XPATH, XpathValue('', "//p/text()"))]
+    rest_segments = [(OPS.XPATH, XPathValue('', "//p/text()"))]
 
     op = ops.get_operator(OPS.URL_EVAL)
-    results = list(op(elem, [(OPS.URL_EVAL, XpathValue(',', "//url(@href)"))] + rest_segments, 0))
+    results = list(op(elem, [(OPS.URL_EVAL, XPathValue(',', "//url(@href)"))] + rest_segments, 0))
 
     assert len(results) == 2
     for intent in results:
@@ -77,18 +77,18 @@ def test_url_inf_yields_infinite_crawl_intents(monkeypatch):
     monkeypatch.setattr(ops, "get_absolute_links_from_elem_and_xpath", fake_links)
 
     elem = html.fromstring("<html><body></body></html>", base_url="http://test/")
-    rest_segments = [(OPS.XPATH, XpathValue('', "//p/text()"))]
+    rest_segments = [(OPS.XPATH, XPathValue('', "//p/text()"))]
 
     op = ops.get_operator(OPS.URL_INF)
     value = "///url(//main//a/@href)"
-    results = list(op(elem, [(OPS.URL_INF, XpathValue('', value))] + rest_segments, 0))
+    results = list(op(elem, [(OPS.URL_INF, XPathValue('', value))] + rest_segments, 0))
 
     assert len(results) == 1
     intent = results[0]
     assert isinstance(intent, CrawlIntent)
     first_op, first_val = intent.next_segments[0]
     assert first_op == OPS.URL_INF_AND_XPATH
-    assert first_val == UrlInfAndXpathValue('', "http://test/a.html", value)
+    assert first_val == UrlInfAndXPathValue('', "http://test/a.html", value)
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ def test_url_inf_and_xpath_yields_data_and_infinite(monkeypatch):
     elem = html.fromstring("<html><body></body></html>", base_url="http://test/")
     rest_segments = [(OPS.XPATH, "//p/text()")]
     op = ops.get_operator(OPS.URL_INF_AND_XPATH)
-    value = UrlInfAndXpathValue('', "http://test/a.html", "//main//a/@href")
+    value = UrlInfAndXPathValue('', "http://test/a.html", "//main//a/@href")
     results = list(op(elem, [(OPS.URL_INF_AND_XPATH, value)] + rest_segments, 0))
 
     assert any(isinstance(r, (DataIntent, ProcessIntent, InfiniteCrawlIntent)) for r in results)
@@ -122,7 +122,7 @@ def test_xpath_yields_wxstr_for_string_results():
 
     delem = DummyElem(elem)
     op = ops.get_operator(OPS.XPATH)
-    results = list(op(delem, [(OPS.XPATH, XpathValue('', "//p/text()"))], 1))
+    results = list(op(delem, [(OPS.XPATH, XPathValue('', "//p/text()"))], 1))
 
     assert len(results) == 1
     s = results[0]
@@ -149,6 +149,6 @@ def test_xpath_macro_expansion_applied():
 
     delem = DummyElem(elem)
     op = ops.get_operator(OPS.XPATH)
-    list(op(delem, [(OPS.XPATH, XpathValue('', "wx:backlink() and wx:depth()"))], 7))
+    list(op(delem, [(OPS.XPATH, XPathValue('', "wx:backlink() and wx:depth()"))], 7))
     assert "string('" in delem.captured
     assert "number(2)" in delem.captured

@@ -3,7 +3,7 @@ import pytest
 from wxpath.core.parser import (
     OPS,
     UrlValue,
-    XpathValue,
+    XPathValue,
     _extract_arg_from_url_xpath_op,
     parse_wxpath_expr,
 )
@@ -37,8 +37,8 @@ def test_parse_wxpath_expr_mixed_segments():
          UrlValue("url('https://en.wikipedia.org/wiki/Expression_language')", 
                   'https://en.wikipedia.org/wiki/Expression_language')),
         (OPS.URL_EVAL, 
-         XpathValue("//url(@href[starts-with(., '/wiki/')])", "@href[starts-with(., '/wiki/')]")),
-        (OPS.URL_EVAL, XpathValue("//url(//@href)", "//@href")),
+         XPathValue("//url(@href[starts-with(., '/wiki/')])", "@href[starts-with(., '/wiki/')]")),
+        (OPS.URL_EVAL, XPathValue("//url(//@href)", "//@href")),
     ]
     assert parse_wxpath_expr(expr) == expected
 
@@ -84,9 +84,9 @@ def test_parse_wxpath_expr_fixed_length_url_preceded_by_slashes():
         parse_wxpath_expr(expr)
     assert \
         ("url() segment cannot have string literal argument and "
-        "preceding navigation slashes (/|//): //url('http://example2.com/')") \
+        "preceding navigation slashes (//): //url('http://example2.com/')") \
         in str(excinfo.value)
-    
+
 
 # Raises when expr starts with //url_from_attr()
 def test_parse_wxpath_expr_url_from_attr_without_elem():
@@ -102,5 +102,5 @@ def test_parse_wxpath_expr_object_segment():
     assert parsed == [
         (OPS.URL_STR_LIT, UrlValue("url('http://example.com')", 'http://example.com')),
         (OPS.XPATH, 
-         XpathValue("/map{ 'title':string(//h1/text()) }", "/map{ 'title':string(//h1/text()) }")),
+         XPathValue("/map{ 'title':string(//h1/text()) }", "/map{ 'title':string(//h1/text()) }")),
     ]

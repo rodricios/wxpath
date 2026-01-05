@@ -103,10 +103,15 @@ class WXPathEngine(HookedEngineBase):
             self, 
             crawler: Crawler | None = None,
             concurrency: int = 16, 
-            per_host: int = 8
+            per_host: int = 8,
+            respect_robots: bool = True,
         ):
         self.seen_urls: set[str] = set()
-        self.crawler = crawler or Crawler(concurrency=concurrency, per_host=per_host)
+        self.crawler = crawler or Crawler(
+            concurrency=concurrency, 
+            per_host=per_host,
+            respect_robots=respect_robots
+        )
 
     async def run(self, expression: str, max_depth: int):
         segments = parse_wxpath_expr(expression)

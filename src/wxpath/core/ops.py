@@ -19,7 +19,7 @@ from wxpath.core.models import (
     Intent,
     ProcessIntent,
 )
-from wxpath.core.parser import OPS, Segment, UrlInfAndXpathValue, XpathValue
+from wxpath.core.parser import OPS, Segment, UrlInfAndXPathValue, XPathValue
 from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
@@ -68,7 +68,7 @@ def _handle_url_str_lit(curr_elem: html.HtmlElement,
 
     if value.follow:
         _segments = [
-            (OPS.URL_INF_AND_XPATH, UrlInfAndXpathValue('', value.target, value.follow))
+            (OPS.URL_INF_AND_XPATH, UrlInfAndXPathValue('', value.target, value.follow))
         ] + next_segments
         
         yield CrawlIntent(url=value.target, next_segments=_segments)
@@ -130,7 +130,7 @@ def _handle_url_inf(curr_elem: html.HtmlElement,
     tail_segments = curr_segments[1:]
     for url in dict.fromkeys(urls):
         _segments = [
-            (OPS.URL_INF_AND_XPATH, UrlInfAndXpathValue('', url, _path_exp))
+            (OPS.URL_INF_AND_XPATH, UrlInfAndXPathValue('', url, _path_exp))
         ] + tail_segments
         
         log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": url})
@@ -160,7 +160,7 @@ def _handle_url_inf_and_xpath(curr_elem: html.HtmlElement,
             yield ExtractIntent(elem=curr_elem, next_segments=next_segments)
 
         # For url_inf, also re-enqueue for further infinite expansion
-        _segments = [(OPS.URL_INF, XpathValue('', value.expr))] + next_segments
+        _segments = [(OPS.URL_INF, XPathValue('', value.expr))] + next_segments
         crawl_intent = InfiniteCrawlIntent(elem=curr_elem, next_segments=_segments)
         log.debug("queueing InfiniteCrawlIntent", 
                   extra={"depth": curr_depth, "op": op, 
