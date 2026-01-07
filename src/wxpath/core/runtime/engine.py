@@ -16,7 +16,7 @@ from wxpath.core.models import (
     ProcessIntent,
 )
 from wxpath.core.ops import get_operator
-from wxpath.core.parser import parse_wxpath_expr
+from wxpath.core.parser import parse_wxpath_expr, Segment
 from wxpath.core.runtime.helpers import parse_html
 from wxpath.hooks.registry import FetchContext, get_hooks
 from wxpath.http.client.crawler import Crawler
@@ -110,7 +110,10 @@ class WXPathEngine(HookedEngineBase):
 
     async def run(self, expression: str, max_depth: int):
         segments = parse_wxpath_expr(expression)
+        async for output in self._run(segments, max_depth):
+            yield output
 
+    async def _run(self, segments: list[Segment], max_depth: int):
         queue: asyncio.Queue[CrawlTask] = asyncio.Queue()
         inflight: dict[str, CrawlTask] = {}
         pending_tasks = 0
@@ -157,6 +160,14 @@ class WXPathEngine(HookedEngineBase):
                 queue=queue,
             ):
                 yield await self.post_extract_hooks(output)
+
+            # Check if we're done before entering the crawler loop
+            # This prevents hanging when the seed task doesn't produce any crawl intents
+            if is_terminal():
+                submit_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await submit_task
+                return
 
             # While looping asynchronous generators, you MUST make sure 
             # to check terminal conditions before re-iteration.
@@ -244,7 +255,8 @@ class WXPathEngine(HookedEngineBase):
             if not intents:
                 return
 
-            for intent in intents:
+            async for intent in intents:
+                # breakpoint()
                 if isinstance(intent, DataIntent):
                     yield intent.value
 

@@ -39,6 +39,9 @@ class UrlInfAndXpathValue(ValueBase):
     target: str
     expr: str
 
+@dataclass(frozen=True, slots=True)
+class SubExprValue(ValueBase):
+    segments: list
 
 Value: TypeAlias = UrlValue | XpathValue | UrlInfAndXpathValue
 
@@ -47,7 +50,11 @@ class Segment(NamedTuple):
     op: str
     value: Value
 
-
+# NOTE: I will likely need to abstract the operator signature:
+#   (wxpath   -> xpath )
+#   (xpath    -> wxpath)
+#   ((wxpath) -> xpath )
+#   ((wxpath) -> wxpath)
 class OPS(StrEnum):
     URL_STR_LIT       = "url_str_lit"
     URL_EVAL          = "url_eval"
@@ -55,10 +62,115 @@ class OPS(StrEnum):
     URL_INF_AND_XPATH = "url_inf_and_xpath"
     XPATH             = "xpath"
     XPATH_FN_MAP_FRAG = "xpath_fn_map_frag" # XPath function ending with map operator '!'
+    WXPATH_SUB_EXPR   = "wxpath_sub_expr"
     INF_XPATH         = "inf_xpath" # Experimental
     OBJECT            = "object" # Deprecated
     URL_FROM_ATTR     = "url_from_attr" # Deprecated
     URL_OPR_AND_ARG   = "url_opr_and_arg" # Deprecated
+
+
+class Symbol(NamedTuple):
+    start: int
+    end: int
+    symbol: str
+    raw: str
+
+
+class Scanner:
+    """
+    Overall strategy for building AST: 
+
+    1. Scan in phases, gradually simplifying the wxpath expression to atomic units. 
+    2. Build an AST from the fully simplified list of Symbols
+    """
+    def __init__(self, path_expr: str):
+        self.symbols = []  # type: list[Symbol]
+        self.path_expr = path_expr
+
+
+    def _scan_wxpath_expr(self: 'Scanner', path_expr: str):
+        """
+        Scans a wxpath expression for subexpressions, and replaces them with placeholders to
+        simplify parsing
+        
+        :param path_expr: str
+        :type path_expr: str
+        """
+        i = 0
+        n = len(path_expr)
+        while i < n:
+            # Detect ///url(, //url(, /url(, or url(
+            match = re.match(r'/{0,3}url\(', path_expr[i:])
+            # Detect subexpressions
+            match_sub_expr = re.match(r"\(\s*url", path_expr[i:])
+            if match_sub_expr:
+                # this will be index of the second opening "(" within the "...(url(" subexpression
+                sub_expr_start, sub_expr_end = _scan_sub_wxpath_expr(path_expr, match_sub_expr.end())
+                sub_partitions = _scan_path_expr(path_expr[sub_expr_start-3: sub_expr_end])
+
+                # move to the end of the subexpression (past the closing ")")
+                i = sub_expr_end + 1
+                self.symbols.append(Symbol(sub_expr_start-3, 
+                                           sub_expr_end, 
+                                           "WXPATH_SUB_EXPR", 
+                                           path_expr[sub_expr_start-3: sub_expr_end]))
+                # partitions.append(sub_partitions)
+                # breakpoint()
+            if match:
+                seg_start = i
+                i += match.end()  # Move past the matched "url("
+                paren_depth = 1
+                while i < n and paren_depth > 0:
+                    if path_expr[i] == '(':
+                        paren_depth += 1
+                    elif path_expr[i] == ')':
+                        paren_depth -= 1
+                    i += 1
+                # partitions.append(path_expr[seg_start:i])
+                # self.replaced_path_expr = self.replaced_path_expr[:seg_start] + \
+
+                if paren_depth > 0:
+                    raise SyntaxError("Unbalanced parentheses found in WXPath subexpression"
+                                      f"at index {seg_start}")
+                self.symbols.append(Symbol(seg_start, i, "EXPR", path_expr[seg_start:i]))
+                
+    def _tokenize_wxpath_expr(self: 'Scanner', path_expr: str) -> list[str]:
+        pass
+                        
+
+def _scan_sub_wxpath_expr(path_expr: str, sub_expr_start: int,  depth: int = 0) -> list[str]:
+    """
+    Extracts sub wxpath expressions from a wxpath expression
+
+    Subexpressions are delimited by r"\(\s*url" and r")" after
+    balancing parentheses.
+    """
+    if depth > 2:
+        raise SyntaxError("There cannot be WXPath subexpressions within subexpressions. "
+                          f"Found sub-subexpression (url(..(url(..)))) at index {sub_expr_start}")
+
+    open_paren_count = 1
+    i = sub_expr_start
+    n = len(path_expr)
+
+    while i < n:
+        if path_expr[i] == "(":
+            open_paren_count += 1
+        elif path_expr[i] == ")":
+            open_paren_count -= 1
+
+        if open_paren_count == 0:
+            break
+
+        i += 1
+    
+    if open_paren_count > 0: 
+        raise SyntaxError("Unbalanced parentheses found in WXPath subexpression"
+                          f"at index {sub_expr_start}")
+    print(f"{sub_expr_start}:{i}")
+    # return 'url' + path_expr[sub_expr_start: i]
+    return sub_expr_start, i
+
 
 
 def _scan_path_expr(path_expr: str) -> list[str]:
@@ -75,7 +187,18 @@ def _scan_path_expr(path_expr: str) -> list[str]:
     while i < n:
         # Detect ///url(, //url(, /url(, or url(
         match = re.match(r'/{0,3}url\(', path_expr[i:])
-        if match:
+        # Detect subexpressions
+        match_sub_expr = re.match(r"\(\s*url", path_expr[i:])
+        if match_sub_expr:
+            # this will be index of the second opening "(" within the "...(url(" subexpression
+            sub_expr_start, sub_expr_end = _scan_sub_wxpath_expr(path_expr, match_sub_expr.end())
+            sub_partitions = _scan_path_expr(path_expr[sub_expr_start-3: sub_expr_end])
+
+            # move to the end of the subexpression (past the closing ")")
+            i = sub_expr_end + 1
+            partitions.append(sub_partitions)
+            # breakpoint()
+        elif match:
             seg_start = i
             i += match.end()  # Move past the matched "url("
             paren_depth = 1
@@ -96,13 +219,20 @@ def _scan_path_expr(path_expr: str) -> list[str]:
 
     return partitions
 
-
-def parse_wxpath_expr(path_expr):
-    partitions = _scan_path_expr(path_expr)
-
-    # Lex and parse
+def _lex_and_parse(partitions: list) -> list[Segment]:
     segments = []  # type: list[Segment]
+
     for s in partitions:
+        if isinstance(s, list):
+            sub_segments = _lex_and_parse(s)
+            segments.append(
+                Segment(
+                    OPS.WXPATH_SUB_EXPR, 
+                    SubExprValue(' '.join(s), sub_segments)
+                )
+            )
+            continue
+
         s = s.strip()
         if not s:
             continue
@@ -138,6 +268,15 @@ def parse_wxpath_expr(path_expr):
             segments.append(Segment(OPS.XPATH_FN_MAP_FRAG, XpathValue(s, s[:-1])))
         else:
             segments.append(Segment(OPS.XPATH, XpathValue(s, s)))
+    
+    return segments
+
+
+def parse_wxpath_expr(path_expr):
+    partitions = _scan_path_expr(path_expr)
+
+    # Lex and parse
+    segments = _lex_and_parse(partitions)
     
     ## EXPERIMENTAL
     ## Disabled for now

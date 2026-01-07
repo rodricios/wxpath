@@ -2,7 +2,7 @@
 `ops` for "operations". This module contains side-effect-free functions (operators) 
 for handling each segment of a wxpath expression.
 """
-from typing import Callable, Iterable
+from typing import Callable, Iterable, AsyncGenerator
 from urllib.parse import urljoin
 
 import elementpath
@@ -19,7 +19,7 @@ from wxpath.core.models import (
     Intent,
     ProcessIntent,
 )
-from wxpath.core.parser import OPS, Segment, UrlInfAndXpathValue, XpathValue
+from wxpath.core.parser import OPS, Segment, UrlInfAndXpathValue, XpathValue, SubExprValue
 from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
@@ -50,16 +50,16 @@ def _op(name: OPS):
     return reg
 
 
-def get_operator(name: OPS) -> Callable[[html.HtmlElement, list[Segment], int], Iterable[Intent]]:
+def get_operator(name: OPS) -> Callable[[html.HtmlElement, list[Segment], int], AsyncGenerator[Intent]]:
     if name not in HANDLERS:
         raise ValueError(f"Unknown operation: {name}")
     return HANDLERS[name]
 
 
 @_op(OPS.URL_STR_LIT)
-def _handle_url_str_lit(curr_elem: html.HtmlElement, 
+async def _handle_url_str_lit(curr_elem: html.HtmlElement | None, 
                         curr_segments: list[Segment], 
-                        curr_depth: int, **kwargs) -> Iterable[Intent]:
+                        curr_depth: int, **kwargs) -> AsyncGenerator[Intent]:
     op, value = curr_segments[0]
 
     log.debug("queueing", extra={"depth": curr_depth, "op": op, "url": value.target})
@@ -77,10 +77,10 @@ def _handle_url_str_lit(curr_elem: html.HtmlElement,
 
 
 @_op(OPS.URL_EVAL)
-def _handle_url_eval(curr_elem: html.HtmlElement | str, 
+async def _handle_url_eval(curr_elem: html.HtmlElement | str, 
                      curr_segments: list[Segment], 
                      curr_depth: int, 
-                     **kwargs) -> Iterable[Intent]:
+                     **kwargs) -> AsyncGenerator[Intent]:
     op, value = curr_segments[0]
 
     _path_exp = value.expr
@@ -92,6 +92,7 @@ def _handle_url_eval(curr_elem: html.HtmlElement | str,
             raise ValueError("Only '.' or 'self::node()' is supported in url() segments "
                              f"when prior xpath operation results in a string. Got: {_path_exp}")
 
+        # TODO: Document what kind of values curr_elem can be.
         urls = [urljoin(getattr(curr_elem, 'base_url', None) or '', curr_elem)]
     else:
         # TODO: If prior xpath operation is XPATH_FN_MAP_FRAG, then this will likely fail.
@@ -106,10 +107,10 @@ def _handle_url_eval(curr_elem: html.HtmlElement | str,
 
 
 @_op(OPS.URL_INF)
-def _handle_url_inf(curr_elem: html.HtmlElement, 
+async def _handle_url_inf(curr_elem: html.HtmlElement, 
                     curr_segments: list[Segment], 
                     curr_depth: int, 
-                    **kwargs) -> Iterable[CrawlIntent]:
+                    **kwargs) -> AsyncGenerator[CrawlIntent]:
     """
     Handles the ///url() segment of a wxpath expression. This operation is also 
     generated internally by the parser when a `///<xpath>/[/]url()` segment is
@@ -139,10 +140,10 @@ def _handle_url_inf(curr_elem: html.HtmlElement,
 
 
 @_op(OPS.URL_INF_AND_XPATH)
-def _handle_url_inf_and_xpath(curr_elem: html.HtmlElement, 
+async def _handle_url_inf_and_xpath(curr_elem: html.HtmlElement, 
                               curr_segments: list[Segment], 
                               curr_depth: int, **kwargs) \
-                                -> Iterable[DataIntent | ProcessIntent | InfiniteCrawlIntent]:
+                                -> AsyncGenerator[DataIntent | ProcessIntent | InfiniteCrawlIntent]:
     """
     This is an operation that is generated internally by the parser. There is
     no explicit wxpath expression that generates this operation.
@@ -173,10 +174,10 @@ def _handle_url_inf_and_xpath(curr_elem: html.HtmlElement,
 
 
 @_op(OPS.XPATH)
-def _handle_xpath(curr_elem: html.HtmlElement, 
+async def _handle_xpath(curr_elem: html.HtmlElement, 
                   curr_segments: list[Segment], 
                   curr_depth: int, 
-                  **kwargs) -> Iterable[DataIntent | ProcessIntent]:
+                  **kwargs) -> AsyncGenerator[DataIntent | ProcessIntent]:
     """
     Handles the [/|//]<xpath> segment of a wxpath expression. This is a plain XPath expression.
     Also handles wxpath-specific macro expansions like wx:backlink() or wx:depth().
@@ -212,10 +213,10 @@ def _handle_xpath(curr_elem: html.HtmlElement,
 
 
 @_op(OPS.XPATH_FN_MAP_FRAG)
-def _handle_xpath_fn_map_frag(curr_elem: html.HtmlElement | str, 
+async def _handle_xpath_fn_map_frag(curr_elem: html.HtmlElement | str, 
                               curr_segments: list[Segment], 
                               curr_depth: int, 
-                              **kwargs) -> Iterable[DataIntent | ProcessIntent]:
+                              **kwargs) -> AsyncGenerator[DataIntent | ProcessIntent]:
     """
     Handles the execution of XPath functions that were initially suffixed with a 
     '!' (map) operator.
@@ -242,3 +243,31 @@ def _handle_xpath_fn_map_frag(curr_elem: html.HtmlElement | str,
             raise ValueError("XPATH_FN_MAP_FRAG is not a terminal operation")
         else:
             yield ProcessIntent(elem=value_or_elem, next_segments=next_segments)
+
+
+@_op(OPS.WXPATH_SUB_EXPR)
+async def _handle_wxpath_sub_expr(curr_elem: html.HtmlElement, 
+                            curr_segments: list[Segment], 
+                            curr_depth: int, 
+                            **kwargs) -> AsyncGenerator[DataIntent | ProcessIntent]:
+    _, value = curr_segments[0]
+    value = value # type: SubExprValue
+    # need to spawn new WXPathEngine instances for each sub-expression
+
+    log.debug("spawning new engine for sub-expression", 
+              extra={"depth": curr_depth, "op": 'wxpath_sub_expr', "sub_expr": value._value})
+    
+    from wxpath.core.runtime.engine import WXPathEngine
+    engine = WXPathEngine()
+
+    async for output in engine._run(value.segments, 2):
+        log.debug("output", extra={"depth": curr_depth, "op": 'wxpath_sub_expr', "output": output})
+        
+        # If there are more elements, then do output-type -> input-type function chaining
+        if curr_segments[1:]:
+            yield ProcessIntent(elem=output, next_segments=curr_segments[1:])
+        else:
+            # If there are no more elements, then we're done
+            yield DataIntent(value=output)
+
+    return
