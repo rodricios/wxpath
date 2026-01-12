@@ -51,8 +51,10 @@ class Token:
 def tokenize(src: str):
     for m in TOKEN_RE.finditer(src):
         kind = m.lastgroup
-        if kind == "WS":
-            continue
+        # # NOTE: in order to preserve native XPath expressions that contain whitespace,
+        # # for example, "and not(...)", we can't skip whitespace
+        # if kind == "WS":
+        #     continue
         yield Token(kind, m.group(), m.start(), m.end())
     yield Token("EOF", "", len(src), len(src))
 
