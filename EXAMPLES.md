@@ -15,7 +15,7 @@ items = wxpath.wxpath_async_blocking(path_expr)
 ```
 
 
-## EXAMPLE 2 - Two-deep crawl and link extraction
+## EXAMPLE 2 - Two-level crawl and link extraction
 
 Starting from Expression language's wiki, crawl all child links  starting with '/wiki/', and extract each child's links (hrefs). The `url(...)` operator is pipe'd arguments from the evaluated XPath.
 
@@ -27,9 +27,9 @@ items = wxpath.wxpath_async_blocking(path_expr)
 ```
 
 
-## EXAMPLE 3 - Infinite crawl with BFS tree depth limit
+## EXAMPLE 3 - Deep crawl with BFS tree depth limit
 
-Starting from Expression language's wiki, infinitely crawl all child links (and child's child's links recursively). The `///` syntax is used to indicate an infinite crawl. Returns lxml.html.HtmlElement objects.
+Starting from Expression language's wiki, follow all child links (and child's child's links iteratively). The `///` syntax is used to indicate a crawl. Returns lxml.html.HtmlElement objects. `max_depth` is used to limit the BFS tree (crawl depth).
 
 ```python
 import wxpath
@@ -39,9 +39,9 @@ path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//ma
 items = wxpath.wxpath_async_blocking(path_expr, max_depth=1)
 ```
 
-## EXAMPLE 4 - Infinite crawl with field extraction
+## EXAMPLE 4 - Deep crawl with field extraction
 
-Infinitely crawls Expression language's wiki's child links and childs' child links (recursively) and then, for each child link crawled, extracts objects with the named fields as a dict.
+Perform a deep crawl from Expression language's wiki's child links and childs' child links (recursively) and then, for each child link crawled, extracts objects with the named fields as a dict.
 
 ```python
 import wxpath
@@ -57,19 +57,24 @@ path_expr = """
         'depth':wx:depth(.)
     }
 """
+```
 
-# Under the hood of wxpath.core.wxpath, we generate `segments` list, 
-# revealing the operations executed to accomplish the crawl.
-# >> segments = wxpath.core.parser.parse_wxpath_expr(path_expr); 
-# >> segments
-# [Segment(op='url', value='https://en.wikipedia.org/wiki/Expression_language'),
-#  Segment(op='url_inf', value='///url(//main//a/@href)'),
-#  Segment(op='xpath', value='/map {        \'title\':(//span[contains(@class, "mw-page-title-main")]/text())[1],         \'short_description\':(//div[contains(@class, "shortdescription")]/text())[1],        \'url\'://link[@rel=\'canonical\']/@href[1]    }')]
+Under the hood of `wxpath`, we generate `segments` list, revealing the runtime engine's operations executed to accomplish the crawl.
+
+```python
+from wxpath.core import parser
+
+for segment in parser.parse(path_expr):
+    print(segment)
+
+UrlLiteral(func='url', args=[String(value='https://en.wikipedia.org/wiki/Expression_language')])
+UrlQuery(func='//url', args=[Xpath(value='//main//a/@href')])
+Xpath(value='/map{\'title\':(//span[contains(@class,"mw-page-title-main")]/text())[1],\'short_description\':(//div[contains(@class,"shortdescription")]/text())[1],\'url\'://link[@rel=\'canonical\']/@href[1],\'backlink\':wx:backlink(.),\'depth\':wx:depth(.)}')
 ```
 
 ## EXAMPLE 5 = Seeding from XPath function expression + mapping operator (`!`)
 
-Functionally create 10 Amazon book search result page URLs, map each URL to the url(.) operator, and for each page, extract the title, price, and link of each book listed.
+Due to the engine supporting XPath 3.1, you can use the `!` operator to seed from XPath functions. This example demonstrates creating 10 Amazon book search result page URLs, mapping each URL to the url(.) operator, and for each page, extracting the title, price, and link of each book listed.
  
 
 ```python
@@ -94,8 +99,9 @@ items = list(wxpath.wxpath_async_blocking_iter(path_expr, max_depth=1))
 
 ## EXAMPLE 6 - Scraping quotes.toscrape.com with pagination
 
-**wxpath** also provides the `follow` parameter, which allows you to specify a follow path for pagination.
-This will be depth-capped according to the `max_depth` parameter.
+**wxpath** provides the `follow` parameter, which allows you to specify a follow path for pagination.
+The `follow` parameter works almost identically to the `///url(//a[@class='next']/@href)` syntax, but it initializes the scraping at the seed URL.
+
 
 ```python
 import wxpath
@@ -110,4 +116,32 @@ url('https://quotes.toscrape.com/tag/humor/', follow=//li[@class='next']/a/@href
 """
 
 items = list(wxpath.wxpath_async_blocking_iter(path_expr, max_depth=3))
+```
+
+## Example 7 - Scrape HackerNews comments
+
+```python
+import wxpath
+
+path_expr = """
+url('https://news.ycombinator.com')///url(//a[text()='comments']/@href | //a[@class='morelink']/@href)//div[@class='comment']//text()
+"""
+
+items = list(wxpath.wxpath_async_blocking_iter(path_expr, max_depth=10))
+```
+
+## Example 7B - Scrape HackerNews comments as JSONL
+
+```python
+import wxpath
+
+path_expr = """
+url('https://news.ycombinator.com')///url(//a[text()='comments']/@href | //a[@class='morelink']/@href)//tr[@class='athing']/map { 
+    'text': .//div[@class='comment']//text(),
+    'user': .//a[@class='hnuser']/@href,
+    'parent_post': .//span[@class='onstory']/a/@href
+    }
+"""
+
+items = list(wxpath.wxpath_async_blocking_iter(path_expr, max_depth=10))
 ```

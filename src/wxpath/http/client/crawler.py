@@ -10,6 +10,7 @@ import aiohttp
 from wxpath.http.client.request import Request
 from wxpath.http.client.response import Response
 from wxpath.http.policy.retry import RetryPolicy
+from wxpath.http.policy.robots import RobotsTxtPolicy
 from wxpath.http.policy.throttler import AbstractThrottler, AutoThrottler
 from wxpath.http.stats import CrawlerStats, build_trace_config
 from wxpath.util.logging import get_logger
@@ -35,11 +36,13 @@ class Crawler:
         auto_throttle_target_concurrency: float = None,
         auto_throttle_start_delay: float = 0.25,
         auto_throttle_max_delay: float = 10.0,
+        respect_robots: bool = True,
     ):
         self.concurrency = concurrency
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._headers   = HEADERS | (headers or {}) # merge headers
         self._proxies = proxies or {}
+        self.respect_robots = respect_robots
 
         self.retry_policy = retry_policy or RetryPolicy()
         self.throttler = throttler or AutoThrottler(
@@ -57,6 +60,7 @@ class Crawler:
         self._workers: list[asyncio.Task] = []
         self._closed = False
         self._stats = CrawlerStats()
+        self._robots_policy: RobotsTxtPolicy | None = None
 
     def build_session(self):
         trace_config = build_trace_config(self._stats)
@@ -73,6 +77,9 @@ class Crawler:
         if self._session is None:
             # self._session = aiohttp.ClientSession(timeout=self._timeout)
             self._session = self.build_session()
+
+        if self.respect_robots:
+            self._robots_policy = RobotsTxtPolicy(self._session)
 
         self._workers = [
             asyncio.create_task(self._worker(), name=f"crawler-worker-{i}")
@@ -134,6 +141,14 @@ class Crawler:
 
     async def _fetch_one(self, req: Request) -> Response | None:
         host = req.hostname
+
+        if self._robots_policy:
+            can_fetch = await self._robots_policy.can_fetch(
+                req.url, self._headers.get("User-Agent")
+            )
+            if not can_fetch:
+                log.debug("disallowed by robots.txt", extra={"url": req.url})
+                return Response(req, 403, b"", error=RuntimeError("Disallowed by robots.txt"))
 
         # TODO: Move this filter to hooks
         if req.url.lower().endswith((".pdf", ".zip", ".exe")):
