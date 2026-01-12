@@ -1,5 +1,5 @@
 
-# wxpath - declarative web crawling with XPath
+# `wxpath` - declarative web crawling with XPath
 
 **wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, you describe what to follow and what to extract in a single expression. **wxpath** executes that expression concurrently, breadth-first-*ish*, and streams results as they are discovered.
 
@@ -11,6 +11,7 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 ## Contents
 
 - [Example](#example)
+- [Language Design](DESIGN.md)
 - [`url(...)` and `///url(...)` Explained](#url-and-url-explained)
 - [General flow](#general-flow)
 - [Asynchronous Crawling](#asynchronous-crawling)
@@ -20,7 +21,7 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 - [CLI](#cli)
 - [Hooks (Experimental)](#hooks-experimental)
 - [Install](#install)
-- [More Examples](#more-examples)
+- [More Examples](EXAMPLES.md)
 - [Comparisons](#comparisons)
 - [Advanced: Engine & Crawler Configuration](#advanced-engine--crawler-configuration)
 - [Project Philosophy](#project-philosophy)
@@ -73,6 +74,11 @@ The above expression does the following:
 
 - `url(...)` is a custom operator that fetches the content of the user-specified or internally generated URL and returns it as an `lxml.html.HtmlElement` for further XPath processing.
 - `///url(...)` indicates a deep crawl. It tells **wxpath** to continue following links up to the specified `max_depth`. Unlike repeated `url()` hops, it allows a single expression to describe deeper graph exploration. WARNING: Use with caution and constraints (via `max_depth` or XPath predicates) to avoid traversal explosion.
+
+
+## Language Design
+
+See [DESIGN.md](DESIGN.md) for details of the language design. You will see the core concepts and design the language from ground up.
 
 
 ## General flow
