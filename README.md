@@ -3,7 +3,7 @@
 
 **wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, you describe what to follow and what to extract in a single expression. **wxpath** executes that expression concurrently, breadth-first-*ish*, and streams results as they are discovered.
 
-By introducing the `url(...)` operator and the `///` syntax, **wxpath**'s engine is able to perform deep web crawling and extraction.
+By introducing the `url(...)` operator and the `///` syntax, **wxpath**'s engine is able to perform deep (or paginated) web crawling and extraction.
 
 NOTE: This project is in early development. Core concepts are stable, but the API and features may change. Please report issues - in particular, deadlocked crawls or unexpected behavior - and any features you'd like to see (no guarantee they'll be implemented).
 
@@ -32,26 +32,28 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 ```python
 import wxpath
 
-path = """
+# Crawl, extract fields, build a knowledge graph
+path_expr = """
 url('https://en.wikipedia.org/wiki/Expression_language')
  ///url(//main//a/@href[starts-with(., '/wiki/') and not(contains(., ':'))])
  /map{
-    'title':(//span[contains(@class, "mw-page-title-main")]/text())[1],
-    'url':string(base-uri(.)),
-    'short_description':(//div[contains(@class, 'shortdescription')]/text())[1]
+    'title': (//span[contains(@class, "mw-page-title-main")]/text())[1] ! string(.),
+    'url': string(base-uri(.)),
+    'short_description': //div[contains(@class, 'shortdescription')]/text() ! string(.),
+    'forward_links': //div[@id="mw-content-text"]//a/@href ! string(.)
  }
 """
 
-for item in wxpath.wxpath_async_blocking_iter(path, max_depth=1):
+for item in wxpath.wxpath_async_blocking_iter(path_expr, max_depth=1):
     print(item)
 ```
 
 Output:
 
 ```python
-map{'title': TextNode('Computer language'), 'url': 'https://en.wikipedia.org/wiki/Computer_language', 'short_description': TextNode('Formal language for communicating with a computer')}
-map{'title': TextNode('Machine-readable medium and data'), 'url': 'https://en.wikipedia.org/wiki/Machine_readable', 'short_description': TextNode('Medium capable of storing data in a format readable by a machine')}
-map{'title': TextNode('Advanced Boolean Expression Language'), 'url': 'https://en.wikipedia.org/wiki/Advanced_Boolean_Expression_Language', 'short_description': TextNode('Hardware description language and software')}
+map{'title': 'Computer language', 'url': 'https://en.wikipedia.org/wiki/Computer_language', 'short_description': 'Formal language for communicating with a computer', 'forward_links': ['/wiki/Formal_language', '/wiki/Communication', '/wiki/Computer',...]}
+map{'title': 'Advanced Boolean Expression Language', 'url': 'https://en.wikipedia.org/wiki/Advanced_Boolean_Expression_Language', 'short_description': 'Hardware description language and software', 'forward_links': ['/wiki/File:ABEL_HDL_example_SN74162.png', '/wiki/Hardware_description_language', '/wiki/Programmable_logic_device', ...]}
+map{'title': 'Machine-readable medium and data', 'url': 'https://en.wikipedia.org/wiki/Machine_readable', 'short_description': 'Medium capable of storing data in a format readable by a machine', 'forward_links': ['/wiki/File:EAN-13-ISBN-13.svg', '/wiki/ISBN', '/wiki/European_Article_Number', ...]}
 ...
 ```
 
