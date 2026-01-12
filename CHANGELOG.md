@@ -9,3 +9,4 @@
 ## 0.3.0
 - Polite crawling by default
 - New Pratt parser
+- Add DSL grammar design document
