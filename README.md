@@ -11,11 +11,12 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 ## Contents
 
 - [Example](#example)
-- [`url(...)` and `///url(...)` Explained](#url-and---explained)
+- [`url(...)` and `///url(...)` Explained](#url-and-url-explained)
 - [General flow](#general-flow)
 - [Asynchronous Crawling](#asynchronous-crawling)
+- [Polite Crawling](#polite-crawling)
 - [Output types](#output-types)
-- [XPath 3.1 support](#xpath-31-support)
+- [XPath 3.1](#xpath-31-by-default)
 - [CLI](#cli)
 - [Hooks (Experimental)](#hooks-experimental)
 - [Install](#install)
@@ -24,6 +25,7 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 - [Advanced: Engine & Crawler Configuration](#advanced-engine--crawler-configuration)
 - [Project Philosophy](#project-philosophy)
 - [Warnings](#warnings)
+- [Commercial support / consulting](#commercial-support--consulting)
 - [License](#license)
 
 
@@ -114,6 +116,10 @@ from wxpath import wxpath_async_blocking_iter
 path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//@href[starts-with(., '/wiki/')])//a/@href"
 items = list(wxpath_async_blocking_iter(path_expr, max_depth=1))
 ```
+
+## Polite Crawling
+
+`wxpath` respects [robots.txt](https://en.wikipedia.org/wiki/Robots_exclusion_standard) by default via the `WXPathEngine(..., robotstxt=True)` constructor.
 
 
 ## Output types
@@ -263,13 +269,15 @@ crawler = Crawler(
     concurrency=8,
     per_host=2,
     timeout=10,
+    respect_robots=False,
 )
 
 # If `crawler` is not specified, a default Crawler will be created with
-# the provided concurrency and per_host values, or with defaults.
+# the provided concurrency, per_host, and respect_robots values, or with defaults.
 engine = WXPathEngine(
     # concurrency=16,
     # per_host=8, 
+    # respect_robots=True,
     crawler=crawler,
 )
 
@@ -294,7 +302,9 @@ items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 - Requests are performed concurrently.
 - Results are streamed as soon as they are available.
 
-### Non-Goals/Limitations (for now)
+### Limitations (for now)
+
+The following features are not yet supported:
 
 - Strict result ordering
 - Persistent scheduling or crawl resumption
