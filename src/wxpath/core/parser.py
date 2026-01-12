@@ -131,7 +131,6 @@ class ContextItem(Xpath):
     value: str = "."
 
 
-
 PRECEDENCE = {
     "||": 5,   # String concatenation (lowest precedence)
     "=": 10,
