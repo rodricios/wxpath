@@ -7,6 +7,7 @@ from typing import Any, AsyncGenerator
 from lxml.html import HtmlElement
 
 from wxpath import patches  # noqa: F401
+from wxpath.core import parser
 from wxpath.core.models import (
     CrawlIntent,
     CrawlTask,
@@ -16,7 +17,7 @@ from wxpath.core.models import (
     ProcessIntent,
 )
 from wxpath.core.ops import get_operator
-from wxpath.core.parser import parse_wxpath_expr
+from wxpath.core.parser import Binary
 from wxpath.core.runtime.helpers import parse_html
 from wxpath.hooks.registry import FetchContext, get_hooks
 from wxpath.http.client.crawler import Crawler
@@ -114,7 +115,7 @@ class WXPathEngine(HookedEngineBase):
         )
 
     async def run(self, expression: str, max_depth: int):
-        segments = parse_wxpath_expr(expression)
+        segments = parser.parse(expression)
 
         queue: asyncio.Queue[CrawlTask] = asyncio.Queue()
         inflight: dict[str, CrawlTask] = {}
@@ -239,12 +240,11 @@ class WXPathEngine(HookedEngineBase):
         mini_queue: deque[(HtmlElement, list[tuple[str, str]])] = deque([(elem, task.segments)])
 
         while mini_queue:
-            elem, segments = mini_queue.popleft()
-            
-            op, _ = segments[0]
-            operator = get_operator(op)
+            elem, bin_or_segs = mini_queue.popleft()
 
-            intents = operator(elem, segments, depth)
+            binary_or_segment = bin_or_segs if isinstance(bin_or_segs, Binary) else bin_or_segs[0]
+            operator = get_operator(binary_or_segment)
+            intents = operator(elem, bin_or_segs, depth)
 
             if not intents:
                 return
@@ -258,6 +258,7 @@ class WXPathEngine(HookedEngineBase):
                     # if intent.url not in self.seen_urls and next_depth <= max_depth:
                     if next_depth <= max_depth:
                         # self.seen_urls.add(intent.url)
+                        print(f"Depth: {next_depth}; Crawling {intent.url}")
                         queue.put_nowait(
                             CrawlTask(
                                 elem=None,

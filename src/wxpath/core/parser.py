@@ -1,13 +1,7 @@
-"""
-This module contains mainly two kinds of functions: 
-
-1. functions for parsing wxpath expressions.
-2. functions for extracting information from wxpath expressions or subexpressions.
-
-"""
 import re
-from dataclasses import dataclass, fields
-from typing import NamedTuple, Optional, TypeAlias
+from dataclasses import dataclass
+from itertools import pairwise
+from typing import TypeAlias
 
 try:
     from enum import StrEnum
@@ -18,310 +12,565 @@ except ImportError:
         pass
 
 
-@dataclass(frozen=True, slots=True)
-class ValueBase:
-    _value: str
+TOKEN_SPEC = [
+    ("NUMBER",   r"\d+(\.\d+)?"),
+    ("STRING",   r"'([^'\\]|\\.)*'|\"([^\"\\]|\\.)*\""), # TODO: Rename to URL Literal
+    ("WXPATH",   r"/{0,3}\s*url"),  # Must come before NAME to match 'url' as WXPATH
+    # ("///URL",   r"/{3}\s*url"),
+    # ("//URL",    r"/{2}\s*url"),
+    # ("/URL",      r"/{1}\s*url"),
+    ("URL",      r"\s*url"),  # Must come before NAME to match 'url' as WXPATH
+    # ("NAME",     r"[a-zA-Z_][a-zA-Z0-9_]*"),
+    ("FOLLOW",   r",?\s{,}follow="),
+    ("OP",       r"\|\||<=|>=|!=|=|<|>|\+|-|\*|/|!"),  # Added || for string concat
+    ("LPAREN",   r"\("),
+    ("RPAREN",   r"\)"),
+    ("LBRACE",   r"\{"),
+    ("RBRACE",   r"\}"),
+    ("COLON",    r":"),
+    ("COMMA",    r","),
+    ("WS",       r"\s+"),
+    ("DOT",      r"\."),
+    ("OTHER",    r"."),  # Catch-all for xpath operators: /, @, [, ], etc.
+]
+
+TOKEN_RE = re.compile("|".join(
+    f"(?P<{name}>{pattern})"
+    for name, pattern in TOKEN_SPEC
+))
 
 
-@dataclass(frozen=True, slots=True)
-class UrlValue(ValueBase):
-    target: str
-    follow: str | None = None
+@dataclass
+class Token:
+    type: str
+    value: str
+    start: int = 0  # position in source string
+    end: int = 0
 
 
-@dataclass(frozen=True, slots=True)
-class XPathValue(ValueBase):
-    expr: str
+def tokenize(src: str):
+    for m in TOKEN_RE.finditer(src):
+        kind = m.lastgroup
+        # # NOTE: in order to preserve native XPath expressions that contain whitespace,
+        # # for example, "and not(...)", we can't skip whitespace
+        # if kind == "WS":
+        #     continue
+        yield Token(kind, m.group(), m.start(), m.end())
+    yield Token("EOF", "", len(src), len(src))
 
 
-@dataclass(frozen=True, slots=True)
-class UrlInfAndXPathValue(ValueBase):
-    target: str
-    expr: str
+@dataclass
+class Number:
+    value: float
+
+@dataclass
+class String:
+    value: str
 
 
-Value: TypeAlias = UrlValue | XPathValue | UrlInfAndXPathValue
+@dataclass
+class Name:
+    value: str
 
+@dataclass
+class Xpath:
+    value: str
 
-class Segment(NamedTuple):
+@dataclass
+class Wxpath:
+    value: str
+
+@dataclass
+class Call:
+    func: str
+    args: list
+
+@dataclass
+class Url(Call):
+    pass
+
+@dataclass
+class UrlLiteral(Url):
+    pass
+
+@dataclass
+class UrlQuery(Url):
+    pass
+
+UrlSelect = UrlQuery
+
+@dataclass
+class UrlCrawl(Url):
+    pass
+
+UrlFollow = UrlCrawl
+
+@dataclass
+class Binary:
+    left: object
     op: str
-    value: Value
+    right: object
 
+Segment: TypeAlias = Url | Xpath
 
-class OPS(StrEnum):
-    URL_STR_LIT       = "url_str_lit"
-    URL_EVAL          = "url_eval"
-    URL_INF           = "url_inf"
-    URL_INF_AND_XPATH = "url_inf_and_xpath"
-    XPATH             = "xpath"
-    XPATH_FN_MAP_FRAG = "xpath_fn_map_frag" # XPath function ending with map operator '!'
-    INF_XPATH         = "inf_xpath" # Experimental
-    OBJECT            = "object" # Deprecated
-    URL_FROM_ATTR     = "url_from_attr" # Deprecated
-    URL_OPR_AND_ARG   = "url_opr_and_arg" # Deprecated
-
-
-def _scan_path_expr(path_expr: str) -> list[str]:
-    """
-    Provided a wxpath expression, produce a list of all xpath and url() partitions
+class Segments(list):
+    def __repr__(self):
+        return f"Segments({super().__repr__()})"
     
-    :param path_expr: Description
-    """
-    # remove newlines
-    path_expr = path_expr.replace('\n', '')
-    partitions = []  # type: list[str]
-    i = 0
-    n = len(path_expr)
-    while i < n:
-        # Detect ///url(, //url(, /url(, or url(
-        match = re.match(r'/{0,3}url\(', path_expr[i:])
-        if match:
-            seg_start = i
-            i += match.end()  # Move past the matched "url("
-            paren_depth = 1
-            while i < n and paren_depth > 0:
-                if path_expr[i] == '(':
-                    paren_depth += 1
-                elif path_expr[i] == ')':
-                    paren_depth -= 1
-                i += 1
-            partitions.append(path_expr[seg_start:i])
+    def __str__(self):
+        return f"Segments({super().__str__()})"
+
+@dataclass
+class Other:
+    value: str
+
+
+@dataclass
+class ContextItem(Xpath):
+    """Represents the XPath context item expression: ."""
+    value: str = "."
+
+
+PRECEDENCE = {
+    "||": 5,   # String concatenation (lowest precedence)
+    "=": 10,
+    "!=": 10,
+    "<": 10,
+    "<=": 10,
+    ">": 10,
+    ">=": 10,
+    "+": 20,
+    "-": 20,
+    "*": 30,
+    "/": 30,
+    "!": 40,   # Simple map operator (highest precedence)
+}
+
+
+class Parser:
+    def __init__(self, tokens):
+        self.tokens = iter(tokens)
+        self.token = next(self.tokens)
+
+    def advance(self):
+        self.token = next(self.tokens)
+
+    def parse(self):
+        # segments = self.parse_segments()
+        output = self.expression(0)
+        if self.token.type != "EOF":
+            raise SyntaxError(f"unexpected token: {self.token}")
+
+        return output
+
+    def expression(self, min_prec):
+        return self.parse_binary(min_prec)
+
+    def parse_binary(self, min_prec): 
+        if self.token.type == "WXPATH":
+            left = self.parse_segments()
         else:
-            # Grab until the next /url(
-            next_url = re.search(r'/{0,3}url\(', path_expr[i:])
-            next_pos = next_url.start() + i if next_url else n
-            if i != next_pos:
-                partitions.append(path_expr[i:next_pos])
-            i = next_pos
+            left = self.nud()
 
-    partitions = [p.strip() for p in partitions if p.strip()]
-    return partitions
+        while self.token.type == "OP" and PRECEDENCE.get(self.token.value, -1) >= min_prec:
+            op = self.token.value
+            prec = PRECEDENCE[op]
+            self.advance()
+            if self.token.type == 'WXPATH':
+                right = self.parse_segments()
+            else: 
+                right = self.parse_binary(prec + 1)
+            left = Binary(left, op, right)
+
+        return left
+    
+    @staticmethod
+    def _validate_segments(func):
+        """
+        Raises if invariants or constraints are violated:
+
+        Invariant: <xpath> in url(<xpath>) may not begin with / or // if following an Xpath segment.
+        
+        :param func: a function that returns a list of segments
+        """
+        def _func(self):
+            segments = func(self)
+            for seg1, seg2 in pairwise(segments):
+                if isinstance(seg1, Xpath) and isinstance(seg2, Url):
+                    if seg2.args[0].value.startswith(("/", "//")):
+                        raise ValueError(
+                            f"Invalid segments: {segments}. the <xpath> in url(<xpath>)"
+                            " may not begin with / or // if following an Xpath segment."
+                        )
+            return segments
+        return _func
+
+    @_validate_segments
+    def parse_segments(self) -> Segments:
+        """
+        Parse a sequence of wxpath segments: url() calls interspersed with xpath.
+        
+        Handles patterns like:
+        - url('...')
+        - url('...')//a/@href
+        - url('...')//a/url(@href)//b
+        - //a/@href  (xpath only - though typically starts with url())
+        - //a/map { 'key': value }  (xpath with map constructors)
+        """
+        segments = []
+        
+        while self.token.type != "EOF":
+            if self.token.type == "WXPATH":
+                # Parse url() call
+                call = self.nud()
+                if call is not None:
+                    if isinstance(call, (Segments, list)):
+                        segments.extend(call)
+                    else:
+                        segments.append(call)
+            elif self.token.type == "RPAREN":
+                # End of nested context
+                break
+            elif self.token.type == "COMMA":
+                # Argument separator - stop segment parsing
+                break
+            elif self.token.type == "RBRACE":
+                # End of map context - stop segment parsing
+                break
+            else:
+                # Capture xpath content until next url() or end
+                xpath_content = self.capture_xpath_until_wxpath_or_end()
+                if xpath_content.strip():
+                    segments.append(Xpath(xpath_content.strip()))
+        
+        return Segments(segments)
 
 
-def parse_wxpath_expr(path_expr):
-    partitions = _scan_path_expr(path_expr)
+    def nud(self):
+        """
+        Parse a null-denoting expression (nud).
 
-    # Lex and parse
-    segments = []  # type: list[Segment]
-    for s in partitions:
-        s = s.strip()
-        if not s:
-            continue
-        if s.startswith('url("') or s.startswith("url('"):
-            segments.append(
-                Segment(
-                    OPS.URL_STR_LIT, 
-                    UrlValue(s, *parse_url_value(_extract_arg_from_url_op(s))),
-                )
-            )
-        elif s.startswith('///url('):
-            segments.append(
-                Segment(
-                    OPS.URL_INF, 
-                    # XpathValue(extract_url_op_arg(s))
-                    XPathValue(_value=s, expr=_extract_arg_from_url_xpath_op(s))
-                    )
-                )
-        elif s.startswith('/url("') or s.startswith("/url('"):
-            raise ValueError("url() segment cannot have string literal "
-                             f"argument and preceding single navigation slashes (/): {s}")
-        elif s.startswith('//url("') or s.startswith("//url('"):
-            # if  i > 0:
-            raise ValueError("url() segment cannot have string literal "
-                            f"argument and preceding navigation slashes (//): {s}")
-        elif s.startswith('/url(') or s.startswith("//url("):
-            segments.append(Segment(OPS.URL_EVAL, XPathValue(s, _extract_arg_from_url_xpath_op(s))))
-        elif s.startswith('url('):
-            segments.append(Segment(OPS.URL_EVAL, XPathValue(s, _extract_arg_from_url_xpath_op(s))))
-        elif s.startswith('///'):
-            raise ValueError(f"xpath segment cannot have preceding triple slashes : {s}")
-            # segments.append(Segment(OPS.INF_XPATH, XpathValue(s, "//" + s[3:])))
-        elif s.endswith('!'):
-            segments.append(Segment(OPS.XPATH_FN_MAP_FRAG, XPathValue(s, s[:-1])))
+        Null-denoting expressions are either a number, a name, or an expression
+        enclosed in parentheses.
+
+        :return: The parsed expression.
+        :raises SyntaxError: if the token is not a number, name, or LPAREN.
+        """
+        tok = self.token
+
+        if tok.type == "NUMBER":
+            self.advance()
+            return Number(float(tok.value))
+        
+        if tok.type == "STRING":
+            self.advance()
+            return String(tok.value[1:-1])  # strip quotes
+
+        if tok.type == "DOT":
+            self.advance()
+            return ContextItem()
+
+        if tok.type == "WXPATH":
+            value = tok.value.replace(" ", "").replace("\n", "")
+            self.advance()
+
+            if self.token.type == "LPAREN":
+                return self.parse_call(value)
+
+            return Wxpath(value)
+
+        if tok.type == "NAME":
+            self.advance()
+
+            # function call
+            if self.token.type == "LPAREN":
+                return self.parse_call(tok.value)
+
+            return Name(tok.value)
+
+        if tok.type == "LPAREN":
+            self.advance()
+            expr = self.expression(0)
+            if self.token.type != "RPAREN":
+                raise SyntaxError("expected ')'")
+            self.advance()
+            return expr
+
+        # For other tokens (xpath content), return None to signal caller to handle
+        return None
+    
+
+    def capture_xpath_until_wxpath_or_end(self):
+        """
+        Capture xpath tokens until we hit a WXPATH token, EOF, RPAREN, or COMMA.
+        Properly balances parentheses and braces for xpath functions like contains()
+        and map constructors like map { ... }.
+        """
+        result = ""
+        paren_depth = 0
+        brace_depth = 0
+        
+        while self.token.type != "EOF":
+            # Stop conditions (only at depth 0 for both parens and braces)
+            if paren_depth == 0 and brace_depth == 0:
+                if self.token.type == "WXPATH":
+                    break
+                if self.token.type == "RPAREN":
+                    break
+                if self.token.type == "COMMA":
+                    break
+            
+            # Track paren depth for xpath functions
+            if self.token.type == "LPAREN":
+                paren_depth += 1
+            elif self.token.type == "RPAREN":
+                paren_depth -= 1
+                if paren_depth < 0:
+                    # This RPAREN closes an outer context
+                    break
+            
+            # Track brace depth for map constructors
+            if self.token.type == "LBRACE":
+                brace_depth += 1
+            elif self.token.type == "RBRACE":
+                brace_depth -= 1
+                if brace_depth < 0:
+                    # This RBRACE closes an outer context
+                    break
+            
+            result += self.token.value
+            self.advance()
+        
+        return result
+    
+
+    def capture_url_arg_content(self) -> list:
+        """
+        Capture content inside a url() call, handling nested wxpath expressions.
+        
+        Returns a list of parsed elements:
+        - Xpath nodes for xpath content
+        - Call nodes for nested url() calls
+        
+        Supports patterns like:
+        - url('...')                      -> [String]
+        - url('...' follow=//a/@href)     -> [String, Xpath]
+        - url(//a/@href)                  -> [Xpath]
+        - url( url('..')//a/@href )       -> [Call, Xpath]
+        - url( url( url('..')//a )//b )   -> [Call, Xpath] (with nested Call inside)
+        """
+        elements = []
+        current_xpath = ""
+        paren_balance = 1  # We're already inside the opening paren of url()
+        brace_balance = 0  # Track braces for map constructors
+        reached_follow_token = False
+        follow_xpath = ""
+        while paren_balance > 0 and self.token.type != "EOF":
+            if self.token.type == "WXPATH":
+                # Found nested wxpath: save any accumulated xpath content first
+                if current_xpath.strip():
+                    elements.append(Xpath(current_xpath.strip()))
+                    current_xpath = ""
+                
+                # Parse the nested url() call using nud()
+                # This recursively handles deeply nested wxpath
+                nested_call = self.nud()
+                if nested_call is not None:
+                    elements.append(nested_call)
+
+            elif self.token.type == "FOLLOW":
+                reached_follow_token = True
+                self.advance()
+
+            elif self.token.type == "LPAREN":
+                # Opening paren that's NOT part of a url() call
+                # (it's part of an xpath function like contains(), starts-with(), etc.)
+                paren_balance += 1
+                current_xpath += self.token.value
+                self.advance()
+                
+            elif self.token.type == "RPAREN":
+                paren_balance -= 1
+                if paren_balance == 0:
+                    # This is the closing paren of the outer url()
+                    break
+                current_xpath += self.token.value
+                self.advance()
+
+            elif self.token.type == "LBRACE":
+                # Opening brace for map constructors
+                brace_balance += 1
+                current_xpath += self.token.value
+                self.advance()
+
+            elif self.token.type == "RBRACE":
+                brace_balance -= 1
+                current_xpath += self.token.value
+                self.advance()
+                
+            else:
+                # Accumulate all other tokens as xpath content
+                if not reached_follow_token:
+                    current_xpath += self.token.value
+                else: 
+                    follow_xpath += self.token.value
+
+                self.advance()
+        
+        if paren_balance != 0:
+            raise SyntaxError("unbalanced parentheses in url()")
+        
+        # Save any remaining xpath content
+        if current_xpath.strip():
+            current_xpath = current_xpath.strip()
+            if current_xpath == ".":
+                elements.append(ContextItem())
+            else:
+                elements.append(Xpath(current_xpath))
+        
+        if follow_xpath.strip():
+            elements.append(Xpath(follow_xpath.strip()))
+
+        return elements
+
+    def parse_call(self, func_name):
+        self.advance()  # consume '('
+        args = []
+        follow_arg = None
+
+        if func_name.endswith("url"):
+            if self.token.type == "STRING":
+                # Simple case: url('literal string')
+                args = [String(self.token.value[1:-1])]  # strip quotes
+                self.advance()
+                # Handle follow=...
+                if self.token.type == "FOLLOW":
+                    self.advance()
+                    follow_arg = self.capture_url_arg_content()
+                    args.extend(follow_arg)
+            elif self.token.type == "WXPATH":
+                # Nested wxpath: url( url('...')//a/@href ) or url( /url(...) )
+                # Use capture_url_arg_content to handle nested wxpath and xpath
+                args = self.capture_url_arg_content()
+            else:
+                # Simple xpath argument: url(//a/@href)
+                # Could still contain nested wxpath, so use capture_url_arg_content
+                args = self.capture_url_arg_content()
+
+        # Handle additional comma-separated arguments (e.g., follow=...)
+        if self.token.type != "RPAREN":
+            while True:
+                args.append(self.expression(0))
+                if self.token.type == "COMMA":
+                    self.advance()
+                    continue
+                break
+
+        if self.token.type != "RPAREN":
+            raise SyntaxError("expected ')'")
+        self.advance()
+
+        return _specify_call_types(func_name, args)
+
+
+def _specify_call_types(func_name: str, args: list):
+    if func_name == "url":
+        if len(args) == 1:
+            if isinstance(args[0], String):
+                return UrlLiteral(func_name, args)
+            elif isinstance(args[0], (Xpath, ContextItem)):
+                return UrlQuery(func_name, args)
+            else:
+                raise ValueError(f"Unknown argument type: {type(args[0])}")
+        elif len(args) == 2:
+            if isinstance(args[0], String) and isinstance(args[1], Xpath):
+                return UrlCrawl(func_name, args)
+            elif isinstance(args[0], UrlLiteral) and isinstance(args[1], Xpath):
+                args.append(UrlQuery('url', [ContextItem()]))
+                return Segments(args)
+            elif isinstance(args[0], (Segments, list)) and isinstance(args[1], Xpath):
+                segs = args[0]
+                segs.append(args[1])
+                return Segments(segs)
+            else:
+                raise ValueError(f"Unknown arguments: {args}")
         else:
-            segments.append(Segment(OPS.XPATH, XPathValue(s, s)))
-    
-    ## EXPERIMENTAL
-    ## Disabled for now
-    ## Collapes inf_xpath segment and the succeeding url_eval segment into a single url_inf segment
-    # for i in range(len(segments) - 1, 0, -1):
-    #     if segments[i - 1][0] == OPS.INF_XPATH and segments[i][0] == OPS.URL_EVAL:
-    #         inf_xpath_value = segments[i - 1][1]
-    #         url_eval_value = segments[i][1]
-    #         url_eval_traveral_fragment = url_eval_value._value.split('url')[0]
-    #         segments[i - 1] = Segment(
-    #             OPS.URL_INF,
-    #             XpathValue(
-    #                 _value='', 
-    #                 expr=(f'{inf_xpath_value.expr}'
-    #                       f'{url_eval_traveral_fragment}'
-    #                       f'{url_eval_value.expr}')
-    #             )
-    #         )
-    #         segments.pop(i)
-    
-    #### RAISE ERRORS FROM INVALID SEGMENTS ####
-    # Raises if multiple ///url() are present
-    if len([op for op, val in segments if op == OPS.URL_INF]) > 1:
-        raise ValueError("Only one ///url() is allowed")
-    
-    # Raises if multiple url() with string literals are present
-    if len([op for op, _ in segments if op == OPS.URL_STR_LIT]) > 1:
-        raise ValueError("Only one url() with string literal argument is allowed")
-    
-    # Raises when expr starts with //url(@<attr>)
-    if segments and segments[0][0] == OPS.URL_EVAL:
-        raise ValueError("Path expr cannot start with [//]url(<xpath>)")
-    
-    # Raises if expr ends with INF_XPATH
-    if segments and segments[-1][0] == OPS.INF_XPATH:
-        raise ValueError("Path expr cannot end with ///<xpath>")
-    
-    # Raises if expr ends with XPATH_FN_MAP_FRAG
-    if segments and segments[-1][0] == OPS.XPATH_FN_MAP_FRAG:
-        raise ValueError("Path expr cannot end with !")
-    
-    # Raises if `//url(...)` (URL_INF) has '.' as its expression
-    if len([op for op, val in segments if op == OPS.URL_INF and val.expr == '.']) > 0:
-        raise ValueError("`//url(...)` (URL_INF) cannot have the context item expression '.'"
-                         " as its argument")
-
-    return segments
-
-
-def parse_url_value(src: str) -> tuple[str, Optional[str]]:
-    """
-    Parse the contents of url(...).
-
-    Examples of src:
-      "'https://example.com'"
-      "//a/@href"
-      "'https://x', follow=//a/@href"
-    """
-
-    parts = _split_top_level_commas(src)
-
-    if not parts:
-        raise SyntaxError("url() requires at least one argument")
-
-    # ---- positional argument (target) ----
-    target_src = parts[0].strip()
-    if not target_src:
-        raise SyntaxError("url() target cannot be empty")
-
-    target = _parse_url_target(target_src)
-
-    follow = None
-
-    # ---- keyword arguments ----
-    for part in parts[1:]:
-        name, value = _split_kwarg(part)
-
-        if name == "follow":
-            if follow is not None:
-                raise SyntaxError("duplicate follow= in url()")
-            follow = value.strip()
+            raise ValueError(f"Unknown arguments: {args}")
+    elif func_name == "/url" or func_name == "//url":
+        if len(args) == 1:
+            if isinstance(args[0], (Xpath, ContextItem)):
+                return UrlQuery(func_name, args)
+            else:
+                raise ValueError(f"Unknown argument type: {type(args[0])}")
         else:
-            raise SyntaxError(f"unknown url() argument: {name}")
-
-    return target, follow
-
-
-def extract_url_op_arg(url_op_and_arg: str) -> str:
-    url_op_arg = _extract_arg_from_url_xpath_op(url_op_and_arg)
-    if url_op_arg.startswith('@'):
-        return ".//" + url_op_arg
-    elif url_op_arg.startswith('.'):
-        return url_op_arg
-    elif url_op_arg.startswith('//'):
-        return '.' + url_op_arg
-    elif not url_op_arg.startswith('.//'):
-        return './/' + url_op_arg
+            raise ValueError(f"Unknown arguments: {args}")
+    elif func_name == "///url":
+        if len(args) == 1:
+            if isinstance(args[0], (Xpath, ContextItem)):
+                return UrlCrawl(func_name, args)
+            else:
+                raise ValueError(f"Unknown argument type: {type(args[0])}")
+        else:
+            raise ValueError(f"Unknown arguments: {args}")
     else:
-        return url_op_arg
+        return Call(func_name, args)
 
 
-def _extract_arg_from_url_xpath_op(url_subsegment):
-    match = re.search(r"url\((.+)\)", url_subsegment)
-    if not match:
-        raise ValueError(f"Invalid url() segment: {url_subsegment}")
-    return match.group(1).strip("'\"")  # Remove surrounding quotes if any
+def find_wxpath_boundary(tokens: list) -> tuple[int, int] | None:
+    """
+    Find the operator that connects pure xpath to wxpath.
+    
+    Returns (op_position, wxpath_position) or None if no boundary exists.
+    The boundary is the last operator at depth 0 before the first WXPATH token.
+    """
+    # Find first WXPATH token position
+    wxpath_pos = None
+    for i, tok in enumerate(tokens):
+        if tok.type == "WXPATH":
+            wxpath_pos = i
+            break
+    
+    if wxpath_pos is None:
+        return None
+    
+    # Walk backwards from wxpath to find connecting operator at depth 0
+    paren_depth = 0
+    for i in range(wxpath_pos - 1, -1, -1):
+        tok = tokens[i]
+        if tok.type == "RPAREN":
+            paren_depth += 1
+        elif tok.type == "LPAREN":
+            paren_depth -= 1
+        elif paren_depth == 0 and tok.type == "OP":
+            return (i, wxpath_pos)
+    
+    return None
 
 
-def _extract_arg_from_url_op(url_subsegment):
-    match = re.search(r"url\((.+)\)", url_subsegment)
-    if not match:
-        raise ValueError(f"Invalid url() segment: {url_subsegment}")
-    return match.group(1)  # Remove surrounding quotes if any
-
-
-def _split_top_level_commas(src: str) -> list[str]:
-    parts = []
-    buf = []
-    depth = 0
-    in_string = False
-    quote = None
-
-    for ch in src:
-        if in_string:
-            buf.append(ch)
-            if ch == quote:
-                in_string = False
-            continue
-
-        if ch in ("'", '"'):
-            in_string = True
-            quote = ch
-            buf.append(ch)
-            continue
-
-        if ch in "([{":
-            depth += 1
-        elif ch in ")]}":
-            depth -= 1
-            if depth < 0:
-                raise SyntaxError("unbalanced parentheses in url()")
-
-        if ch == "," and depth == 0:
-            parts.append("".join(buf).strip())
-            buf.clear()
-        else:
-            buf.append(ch)
-
-    if in_string or depth != 0:
-        raise SyntaxError("unbalanced expression in url()")
-
-    if buf:
-        parts.append("".join(buf).strip())
-
-    return parts
-
-
-def _split_kwarg(src: str) -> tuple[str, str]:
-    if "=" not in src:
-        raise SyntaxError(f"expected keyword argument, got: {src}")
-
-    name, value = src.split("=", 1)
-    name = name.strip()
-    value = value.strip()
-
-    if not name or not value:
-        raise SyntaxError(f"invalid keyword argument: {src}")
-
-    return name, value
-
-
-def _parse_url_target(src: str):
-    src = src.strip()
-    # string literal
-    if (src.startswith("'") and src.endswith("'")) or \
-       (src.startswith('"') and src.endswith('"')):
-        return src[1:-1]
-
-    return src
-
-
-def _get_shallow_dict(instance: Value):
-    return {field.name: getattr(instance, field.name) 
-            for field in fields(instance) if field.name not in {'_value'}}
-
+def parse(src):
+    tokens = list(tokenize(src))
+    
+    boundary = find_wxpath_boundary(tokens)
+    
+    # If no wxpath at all, return as pure xpath
+    if boundary is None:
+        # Check if there's any WXPATH token
+        has_wxpath = any(t.type == "WXPATH" for t in tokens)
+        if not has_wxpath:
+            return Xpath(src.strip())
+        # Has wxpath but no boundary operator - parse normally
+        parser = Parser(iter(tokens))
+        return parser.parse()
+    
+    op_pos, wxpath_pos = boundary
+    
+    # Use source positions to extract xpath string (preserves whitespace)
+    op_token = tokens[op_pos]
+    xpath_str = src[:op_token.start].strip()
+    
+    # Parse wxpath part (tokens after the operator)
+    wxpath_tokens = tokens[op_pos + 1:]  # includes EOF
+    parser = Parser(iter(wxpath_tokens))
+    wxpath_ast = parser.parse()
+    
+    return Binary(Xpath(xpath_str), op_token.value, wxpath_ast)
