@@ -312,6 +312,10 @@ items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 - Consider using timeouts, `max_depth`, and XPath predicates and filters to limit crawl scope.
 
 
+## Commercial support / consulting
+
+If you want help building or operating crawlers/data feeds with wxpath (extraction, scheduling, monitoring, breakage fixes) or other web-scraping needs, please contact me at: rodrigopala91@gmail.com
+
 ## License
 
 MIT
