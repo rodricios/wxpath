@@ -60,7 +60,7 @@ registry.register(builtin.JSONLWriter(path='quotes.jsonl'))
 items = list(wxpath_async_blocking_iter(path_expr, max_depth=3))
 ```
 
-or
+or from the command line:
 
 ```bash
 wxpath --depth 1 "\
