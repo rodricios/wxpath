@@ -23,6 +23,8 @@ HEADERS = {"User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 
 
 class Crawler:
+    """Concurrent HTTP crawler that manages throttling, retries, and robots."""
+
     def __init__(
         self,
         concurrency: int = 16,
@@ -62,7 +64,8 @@ class Crawler:
         self._stats = CrawlerStats()
         self._robots_policy: RobotsTxtPolicy | None = None
 
-    def build_session(self):
+    def build_session(self) -> aiohttp.ClientSession:
+        """Construct an `aiohttp.ClientSession` with tracing and pooling."""
         trace_config = build_trace_config(self._stats)
         # Need to build the connector as late as possible as it requires the loop
         connector = aiohttp.TCPConnector(limit=self.concurrency*2, ttl_dns_cache=300)
@@ -73,7 +76,8 @@ class Crawler:
             trace_configs=[trace_config]
         )
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "Crawler":
+        """Initialize HTTP session and start background workers."""
         if self._session is None:
             # self._session = aiohttp.ClientSession(timeout=self._timeout)
             self._session = self.build_session()
@@ -87,15 +91,19 @@ class Crawler:
         ]
         return self
 
-    async def __aexit__(self, *_):
+    async def __aexit__(self, *_) -> None:
+        """Tear down workers and close the HTTP session."""
         self._closed = True
         for w in self._workers:
             w.cancel()
+
         await asyncio.gather(*self._workers, return_exceptions=True)
+
         if self._session:
             await self._session.close()
 
-    def submit(self, req: Request):
+    def submit(self, req: Request) -> None:
+        """Queue a request for fetching or raise if crawler already closed."""
         if self._closed:
             raise RuntimeError("crawler is closed")
         self._pending.put_nowait(req)
@@ -103,18 +111,20 @@ class Crawler:
     def __aiter__(self) -> AsyncIterator[Response]:
         return self._result_iter()
 
-    async def _result_iter(self):
+    async def _result_iter(self) -> AsyncIterator[Response]:
+        """Async iterator yielding responses as workers produce them."""
         # while not self._closed:
         while not (self._closed and self._results.empty()):
             resp = await self._results.get()
             self._results.task_done()
             yield resp
 
-    def _proxy_for(self, url: str):
+    def _proxy_for(self, url: str) -> str | None:
         host = urllib.parse.urlsplit(url).hostname
         return self._proxies.get(host)
 
-    async def _worker(self):
+    async def _worker(self) -> None:
+        """Worker loop that fetches pending requests and enqueues results."""
         while True:
             req = await self._pending.get()
             try:
@@ -140,6 +150,7 @@ class Crawler:
                 self._pending.task_done()
 
     async def _fetch_one(self, req: Request) -> Response | None:
+        """Fetch a single request, handling robots, throttling, and retries."""
         host = req.hostname
 
         if self._robots_policy:
@@ -196,7 +207,8 @@ class Crawler:
                 log.error("request failed", extra={"url": req.url}, exc_info=exc)
                 return Response(req, 0, b"", error=exc)
 
-    async def _retry(self, req: Request):
+    async def _retry(self, req: Request) -> None:
+        """Reschedule a request according to the retry policy."""
         req.retries += 1
         delay = self.retry_policy.get_delay(req)
 

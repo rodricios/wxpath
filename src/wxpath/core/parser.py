@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 from itertools import pairwise
-from typing import TypeAlias
+from typing import Iterable, Iterator, TypeAlias
 
 try:
     from enum import StrEnum
@@ -148,25 +148,28 @@ PRECEDENCE = {
 
 
 class Parser:
-    def __init__(self, tokens):
-        self.tokens = iter(tokens)
+    """Pratt-style parser that produces wxpath AST nodes."""
+
+    def __init__(self, tokens: Iterable[Token]):
+        self.tokens: Iterator[Token] = iter(tokens)
+        self.token: Token = next(self.tokens)
+
+    def advance(self) -> None:
         self.token = next(self.tokens)
 
-    def advance(self):
-        self.token = next(self.tokens)
-
-    def parse(self):
-        # segments = self.parse_segments()
+    def parse(self) -> object:
+        """Parse the input tokens into an AST or raise on unexpected trailing tokens."""
         output = self.expression(0)
         if self.token.type != "EOF":
             raise SyntaxError(f"unexpected token: {self.token}")
 
         return output
 
-    def expression(self, min_prec):
+    def expression(self, min_prec: int) -> object:
         return self.parse_binary(min_prec)
 
-    def parse_binary(self, min_prec): 
+    def parse_binary(self, min_prec: int) -> object:
+        """Parse a binary expression chain honoring operator precedence."""
         if self.token.type == "WXPATH":
             left = self.parse_segments()
         else:
@@ -186,14 +189,18 @@ class Parser:
     
     @staticmethod
     def _validate_segments(func):
-        """
-        Raises if invariants or constraints are violated:
+        """Decorator that validates segment invariants after parsing.
 
-        Invariant: <xpath> in url(<xpath>) may not begin with / or // if following an Xpath segment.
-        
-        :param func: a function that returns a list of segments
+        Raises ValueError if the xpath in ``url(<xpath>)`` begins with ``/``
+        or ``//`` when it follows an Xpath segment.
+
+        Args:
+            func: A bound method that returns a list of segments.
+
+        Returns:
+            The wrapped function that performs validation.
         """
-        def _func(self):
+        def _func(self) -> Segments:
             segments = func(self)
             for seg1, seg2 in pairwise(segments):
                 if isinstance(seg1, Xpath) and isinstance(seg2, Url):
@@ -207,15 +214,18 @@ class Parser:
 
     @_validate_segments
     def parse_segments(self) -> Segments:
-        """
-        Parse a sequence of wxpath segments: url() calls interspersed with xpath.
-        
-        Handles patterns like:
-        - url('...')
-        - url('...')//a/@href
-        - url('...')//a/url(@href)//b
-        - //a/@href  (xpath only - though typically starts with url())
-        - //a/map { 'key': value }  (xpath with map constructors)
+        """Parse a sequence of wxpath segments: url() calls interspersed with xpath.
+
+        Handles patterns like::
+
+            url('...')
+            url('...')//a/@href
+            url('...')//a/url(@href)//b
+            //a/@href
+            //a/map { 'key': value }
+
+        Returns:
+            A Segments list containing the parsed Url and Xpath nodes.
         """
         segments = []
         
@@ -246,15 +256,17 @@ class Parser:
         return Segments(segments)
 
 
-    def nud(self):
-        """
-        Parse a null-denoting expression (nud).
+    def nud(self) -> object | None:
+        """Parse a null-denoting expression (nud).
 
-        Null-denoting expressions are either a number, a name, or an expression
+        Null-denoting expressions include numbers, names, or expressions
         enclosed in parentheses.
 
-        :return: The parsed expression.
-        :raises SyntaxError: if the token is not a number, name, or LPAREN.
+        Returns:
+            The parsed AST node, or None if the token is unrecognized.
+
+        Raises:
+            SyntaxError: If the token cannot form a valid expression.
         """
         tok = self.token
 
@@ -300,11 +312,15 @@ class Parser:
         return None
     
 
-    def capture_xpath_until_wxpath_or_end(self):
-        """
-        Capture xpath tokens until we hit a WXPATH token, EOF, RPAREN, or COMMA.
-        Properly balances parentheses and braces for xpath functions like contains()
-        and map constructors like map { ... }.
+    def capture_xpath_until_wxpath_or_end(self) -> str:
+        """Capture xpath tokens until a WXPATH token, EOF, RPAREN, or COMMA.
+
+        Balances parentheses and braces so that xpath functions like
+        ``contains()`` and map constructors like ``map { ... }`` are captured
+        correctly.
+
+        Returns:
+            The accumulated xpath content as a string.
         """
         result = ""
         paren_depth = 0
@@ -344,20 +360,20 @@ class Parser:
         return result
     
 
-    def capture_url_arg_content(self) -> list:
-        """
-        Capture content inside a url() call, handling nested wxpath expressions.
-        
-        Returns a list of parsed elements:
-        - Xpath nodes for xpath content
-        - Call nodes for nested url() calls
-        
-        Supports patterns like:
-        - url('...')                      -> [String]
-        - url('...' follow=//a/@href)     -> [String, Xpath]
-        - url(//a/@href)                  -> [Xpath]
-        - url( url('..')//a/@href )       -> [Call, Xpath]
-        - url( url( url('..')//a )//b )   -> [Call, Xpath] (with nested Call inside)
+    def capture_url_arg_content(self) -> list[Call | Xpath | ContextItem]:
+        """Capture content inside a url() call, handling nested wxpath expressions.
+
+        Supports patterns like::
+
+            url('...')                      -> [String]
+            url('...' follow=//a/@href)     -> [String, Xpath]
+            url(//a/@href)                  -> [Xpath]
+            url( url('..')//a/@href )       -> [Call, Xpath]
+            url( url( url('..')//a )//b )   -> [Call, Xpath]
+
+        Returns:
+            A list of parsed elements: Xpath nodes for xpath content and Call
+            nodes for nested url() calls.
         """
         elements = []
         current_xpath = ""
@@ -433,7 +449,8 @@ class Parser:
 
         return elements
 
-    def parse_call(self, func_name):
+    def parse_call(self, func_name: str) -> Call | Segments:
+        """Parse a function call (including url variants) and specialize node types."""
         self.advance()  # consume '('
         args = []
         follow_arg = None
@@ -473,7 +490,7 @@ class Parser:
         return _specify_call_types(func_name, args)
 
 
-def _specify_call_types(func_name: str, args: list):
+def _specify_call_types(func_name: str, args: list) -> Call | Segments:
     if func_name == "url":
         if len(args) == 1:
             if isinstance(args[0], String):
@@ -516,12 +533,17 @@ def _specify_call_types(func_name: str, args: list):
         return Call(func_name, args)
 
 
-def find_wxpath_boundary(tokens: list) -> tuple[int, int] | None:
-    """
-    Find the operator that connects pure xpath to wxpath.
-    
-    Returns (op_position, wxpath_position) or None if no boundary exists.
+def find_wxpath_boundary(tokens: list[Token]) -> tuple[int, int] | None:
+    """Find the operator that connects pure xpath to wxpath.
+
     The boundary is the last operator at depth 0 before the first WXPATH token.
+
+    Args:
+        tokens: List of Token objects from the tokenizer.
+
+    Returns:
+        A tuple of (op_position, wxpath_position) or None if no boundary
+        exists.
     """
     # Find first WXPATH token position
     wxpath_pos = None

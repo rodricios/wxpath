@@ -17,7 +17,6 @@ Write once:
 from __future__ import annotations
 
 import functools
-from collections import OrderedDict
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from typing import Any, Iterable, List, Optional, Protocol
@@ -66,20 +65,24 @@ class Hook(Protocol):
 # --------------------------------------------------------------------------- #
 # Global registry helpers
 # --------------------------------------------------------------------------- #
-_global_hooks: OrderedDict[str, Hook] = OrderedDict()
+_global_hooks: dict[str, Hook] = dict()
 
 
 def register(hook: Hook | type) -> Hook:
-    """
-    Decorator / helper to add a Hook to the global list.
+    """Decorator/helper to add a Hook to the global list.
 
-    Example
-    -------
-    >>> @register
-    ... class DebugHook:
-    ...     def post_fetch(self, ctx, html_bytes):
-    ...         print("Fetched", ctx.url)
-    ...         return html_bytes
+    Args:
+        hook: A Hook class or instance to register.
+
+    Returns:
+        The registered hook (instantiated if a class was provided).
+
+    Example:
+        >>> @register
+        ... class DebugHook:
+        ...     def post_fetch(self, ctx, html_bytes):
+        ...         print("Fetched", ctx.url)
+        ...         return html_bytes
     """
 
     hook_name = getattr(hook, '__name__', hook.__class__.__name__)
@@ -101,9 +104,13 @@ def iter_post_extract_hooks() -> Iterable[Hook]:
 
 
 def pipe_post_extract(gen_func):
-    """
-    Decorator: wrap a *generator function* so every yielded value
-    is piped through the registered post_extract hooks.
+    """Wrap a generator function to pipe yielded values through post_extract hooks.
+
+    Args:
+        gen_func: A generator function to wrap.
+
+    Returns:
+        A wrapped generator that filters values through registered hooks.
     """
     @functools.wraps(gen_func)
     def wrapper(*args, **kwargs) -> Generator:
@@ -118,8 +125,13 @@ def pipe_post_extract(gen_func):
 
 
 def pipe_post_extract_async(async_gen_func):
-    """
-    Async variant - wraps an *async* generator function.
+    """Wrap an async generator function to pipe yielded values through hooks.
+
+    Args:
+        async_gen_func: An async generator function to wrap.
+
+    Returns:
+        A wrapped async generator that filters values through registered hooks.
     """
     @functools.wraps(async_gen_func)
     async def wrapper(*args, **kwargs):

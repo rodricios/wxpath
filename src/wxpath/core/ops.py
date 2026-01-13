@@ -32,9 +32,7 @@ log = get_logger(__name__)
 
 
 class WxStr(str):
-    """
-    A string that has a base_url and depth associated with it. Purely for debugging.
-    """
+    """A string with associated base_url and depth metadata for debugging."""
     def __new__(cls, value, base_url=None, depth=-1):
         obj = super().__new__(cls, value)
         obj.base_url = base_url
@@ -51,8 +49,8 @@ class RuntimeSetupError(Exception):
 
 OPS_REGISTER: dict[str, Callable] = {}
 
-def register(func_name_or_type: str | type, args_types: tuple = None):
-    def _register(func):
+def register(func_name_or_type: str | type, args_types: tuple[type, ...] | None = None):
+    def _register(func: Callable) -> Callable:
         global OPS_REGISTER
         _key = (func_name_or_type, args_types) if args_types else func_name_or_type
         if _key in OPS_REGISTER:
@@ -84,6 +82,7 @@ def get_operator(
 def _handle_url_str_lit(curr_elem: html.HtmlElement, 
                         curr_segments: list[Url | Xpath], 
                         curr_depth: int, **kwargs) -> Iterable[Intent]:
+    """Handle `url('<literal>')` segments and optional follow xpath."""
     url_call = curr_segments[0] # type: Url
 
     next_segments = curr_segments[1:]
@@ -104,6 +103,7 @@ def _handle_xpath(curr_elem: html.HtmlElement,
                   curr_segments: Segments,
                   curr_depth: int,
                   **kwargs) -> Iterable[Intent]:
+    """Execute an xpath step and yield data or chained processing intents."""
     xpath_node = curr_segments[0] # type: Xpath
 
     expr = xpath_node.value
@@ -146,6 +146,11 @@ def _handle_url_eval(curr_elem: html.HtmlElement | str,
                      curr_segments: list[Url | Xpath], 
                      curr_depth: int, 
                      **kwargs) -> Iterable[Intent]:
+    """Resolve dynamic url() arguments and enqueue crawl intents.
+    
+    Yields:
+        CrawlIntent
+    """
     url_call = curr_segments[0] # type: Url
 
     if isinstance(url_call.args[0], ContextItem):
@@ -168,13 +173,14 @@ def _handle_url_inf(curr_elem: html.HtmlElement,
                     curr_segments: list[Url | Xpath], 
                     curr_depth: int, 
                     **kwargs) -> Iterable[CrawlIntent]:
-    """
-    Handles the ///url() segment of a wxpath expression. This operation is also 
-    generated internally by the parser when a `///<xpath>/[/]url()` segment is
-    encountered by the parser.
-    This operation does not fetch URLs; instead, it XPaths the current element
-    for URLs, then queues them for further processing (see 
-    _handle_url_inf_and_xpath).
+    """Handle the ``///url()`` segment of a wxpath expression.
+
+    This operation is also generated internally by the parser when a
+    ``///<xpath>/[/]url()`` segment is encountered.
+
+    Instead of fetching URLs directly, this operator XPaths the current
+    element for URLs and queues them for further processing via
+    ``_handle_url_inf_and_xpath``.
     """
     url_call = curr_segments[0] # type: Url
 
@@ -196,9 +202,18 @@ def _handle_url_inf_and_xpath(curr_elem: html.HtmlElement,
                               curr_segments: list[Url | Xpath], 
                               curr_depth: int, **kwargs) \
                                 -> Iterable[DataIntent | ProcessIntent | InfiniteCrawlIntent]:
-    """
-    This is an operation that is generated internally by the parser. There is
-    no explicit wxpath expression that generates this operation.
+    """Handle infinite-crawl with an xpath extraction step.
+
+    This operation is generated internally by the parser; there is no explicit
+    wxpath expression that produces it directly.
+
+    Yields:
+        DataIntent: If the current element is not None and no next segments are provided.
+        ExtractIntent: If the current element is not None and next segments are provided.
+        InfiniteCrawlIntent: If the current element is not None and next segments are provided.
+
+    Raises:
+        ValueError: If the current element is None.
     """
     url_call = curr_segments[0]
 
@@ -228,9 +243,10 @@ def _handle_binary(curr_elem: html.HtmlElement | str,
                               curr_segments: list[Url | Xpath] | Binary, 
                               curr_depth: int, 
                               **kwargs) -> Iterable[DataIntent | ProcessIntent]:
-    """
-    Handles the execution of XPath functions that were initially suffixed with a 
-    '!' (map) operator.
+    """Execute XPath expressions suffixed with the ``!`` (map) operator.
+
+    Yields:
+        ProcessIntent: Contrains either a WxStr or lxml or elementpath element.
     """
     left = curr_segments.left
     _ = curr_segments.op

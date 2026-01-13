@@ -1,7 +1,6 @@
 import asyncio
 import urllib.parse
 import urllib.robotparser
-from typing import Dict
 
 import aiohttp
 
@@ -11,15 +10,18 @@ log = get_logger(__name__)
 
 
 class RobotsTxtPolicy:
+    """Caches and evaluates robots.txt rules for crawler requests."""
+
     def __init__(self, 
                  session: aiohttp.ClientSession, 
                  default_parser: type['RobotsParserBase'] | None = None):
         self._session = session
-        self._parsers: Dict[str, "RobotsParserBase"] = {}
+        self._parsers: dict[str, "RobotsParserBase"] = {}
         self._lock = asyncio.Lock()
         self._default_parser = default_parser or UrllibRobotParser
 
     async def can_fetch(self, url: str, user_agent: str | None) -> bool:
+        """Return whether the crawler is allowed to fetch `url`."""
         host = urllib.parse.urlsplit(url).hostname
         if not host:
             return False
@@ -32,6 +34,7 @@ class RobotsTxtPolicy:
         return self._parsers[host].can_fetch(url, user_agent)
 
     async def _fetch_robots_txt(self, host: str) -> "RobotsParserBase":
+        """Retrieve and parse the robots.txt for `host`, failing open on errors."""
         url = f"http://{host}/robots.txt"
         try:
             async with self._session.get(url) as response:
@@ -58,10 +61,12 @@ class RobotsTxtPolicy:
 
 
 class RobotsParserBase:
-    pass
+    """Base type for robots.txt parsers used by the policy."""
 
 
 class UrllibRobotParser(RobotsParserBase):
+    """Adapter around `urllib.robotparser.RobotFileParser`."""
+
     def __init__(self, text):
         self._parser = urllib.robotparser.RobotFileParser()
         # urllib.robotparser.RobotFileParser.parse() expects a list of lines
@@ -72,5 +77,6 @@ class UrllibRobotParser(RobotsParserBase):
         self._parser.parse(lines)
 
     def can_fetch(self, url, user_agent):
+        """Return whether the URL is allowed for the given user agent."""
         return self._parser.can_fetch(user_agent, url)
 

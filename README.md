@@ -315,7 +315,7 @@ The following features are not yet supported:
 - Strict result ordering
 - Persistent scheduling or crawl resumption
 - Automatic proxy rotation
-- Browser-based rendering (JavaScript execution)
+- ~~Browser-based rendering (JavaScript execution)~~
 
 
 ## WARNINGS!!!
@@ -329,6 +329,11 @@ The following features are not yet supported:
 ## Commercial support / consulting
 
 If you want help building or operating crawlers/data feeds with wxpath (extraction, scheduling, monitoring, breakage fixes) or other web-scraping needs, please contact me at: rodrigopala91@gmail.com
+
+
+### Donate
+
+If you like wxpath and want to support its development, please consider [donating](https://www.paypal.com/donate/?business=WDNDK6J6PJEXY&no_recurring=0&item_name=Thanks+for+using+wxpath%21+Donations+fund+development%2C+docs%2C+and+bug+fixes.+If+wxpath+saved+you+time%2C+a+small+contribution+helps%21&currency_code=USD).
 
 ## License
 
