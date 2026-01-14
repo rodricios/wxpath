@@ -18,6 +18,24 @@ class FakeResponse:
     async def read(self):
         return self._body
 
+    async def text(self):
+        return self._body.decode('utf-8')
+
+    @property
+    def content(self):
+        """Simulate aiohttp ClientResponse.content for streaming."""
+        class FakeContent:
+            def __init__(self, body: bytes):
+                self._body = body
+                self._chunk_size = 8192
+
+            async def iter_chunked(self, chunk_size: int):
+                """Iterate over body in chunks."""
+                for i in range(0, len(self._body), chunk_size):
+                    yield self._body[i:i + chunk_size]
+
+        return FakeContent(self._body)
+
     async def __aenter__(self):
         return self
 
@@ -47,7 +65,7 @@ class FakeSession:
 
 @pytest.mark.asyncio
 async def test_single_request_success():
-    crawler = Crawler(concurrency=1)
+    crawler = Crawler(concurrency=1, respect_robots=False)
 
     crawler._session = FakeSession([
         FakeResponse(200, b"ok"),
@@ -69,7 +87,7 @@ async def test_single_request_success():
 
 @pytest.mark.asyncio
 async def test_retry_then_success():
-    crawler = Crawler(concurrency=1)
+    crawler = Crawler(concurrency=1, respect_robots=False)
 
     crawler._session = FakeSession([
         FakeResponse(500, b"fail"),
@@ -92,7 +110,7 @@ async def test_retry_then_success():
 
 @pytest.mark.asyncio
 async def test_retry_exhaustion_yields_nothing():
-    crawler = Crawler(concurrency=1)
+    crawler = Crawler(concurrency=1, respect_robots=False)
 
     crawler._session = FakeSession([
         FakeResponse(500, b"fail"),
@@ -114,7 +132,7 @@ async def test_retry_exhaustion_yields_nothing():
 
 @pytest.mark.asyncio
 async def test_multiple_requests_stream_as_ready():
-    crawler = Crawler(concurrency=2)
+    crawler = Crawler(concurrency=2, respect_robots=False)
 
     crawler._session = FakeSession([
         FakeResponse(200, b"a"),
@@ -147,7 +165,7 @@ async def test_overlap_retry_does_not_block_other_requests():
     - request B completes immediately
     - B is yielded while A is retrying
     """
-    crawler = Crawler(concurrency=2)
+    crawler = Crawler(concurrency=2, respect_robots=False)
 
     crawler._session = FakeSession([
         FakeResponse(500, b"fail"),   # A fails -> retry
@@ -178,7 +196,7 @@ async def test_submit_after_starting_iteration():
     """
     Ensures crawler can accept new work while results are being consumed.
     """
-    crawler = Crawler(concurrency=1)
+    crawler = Crawler(concurrency=1, respect_robots=False)
 
     crawler._session = FakeSession([
         FakeResponse(200, b"first"),
@@ -200,3 +218,61 @@ async def test_submit_after_starting_iteration():
                 break
 
     assert results == [b"first", b"second"]
+
+
+@pytest.mark.asyncio
+async def test_robots_txt_allowed():
+    """Test that allowed URLs are fetched when robots.txt permits them."""
+    crawler = Crawler(concurrency=1, respect_robots=True)
+
+    crawler._session = FakeSession(
+        [
+            # robots.txt for example.com
+            FakeResponse(200, b"User-agent: *\nDisallow: /private"),
+            # the allowed page
+            FakeResponse(200, b"ok"),
+        ]
+    )
+
+    req = Request("http://example.com/allowed")
+
+    results = []
+    async with crawler:
+        crawler.submit(req)
+        async for resp in crawler:
+            if resp.body:
+                results.append(resp.body)
+            break
+
+    assert results == [b"ok"]
+
+
+@pytest.mark.asyncio
+async def test_robots_txt_disallowed():
+    """Test that disallowed URLs return 403 when robots.txt blocks them."""
+    crawler = Crawler(concurrency=1, respect_robots=True)
+
+    # robots.txt is fetched first, then the request is checked
+    crawler._session = FakeSession(
+        [
+            # robots.txt for example.com (fetched when can_fetch is called)
+            FakeResponse(200, b"User-agent: *\nDisallow: /private"),
+        ]
+    )
+
+    req = Request("http://example.com/private/page", max_retries=0)
+
+    responses = []
+    async with crawler:
+        crawler.submit(req)
+        # Collect all responses
+        async for resp in crawler:
+            responses.append(resp)
+            # Stop after getting one response
+            break
+
+    # Should get a 403 response for disallowed URL
+    assert len(responses) == 1
+    assert responses[0].status == 403
+    assert responses[0].error is not None
+    assert "robots.txt" in str(responses[0].error)

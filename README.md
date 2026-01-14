@@ -1,9 +1,10 @@
+# **wxpath** - declarative web crawling with XPath 
 
-# wxpath - declarative web crawling with XPath
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 
-**wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, you describe what to follow and what to extract in a single expression. **wxpath** evaluates that expression concurrently, breadth-first-*ish*, and streams results as they are discovered.
+**wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, wxpath lets you describe what to follow and what to extract in a single expression. **wxpath** executes that expression concurrently, breadth-first-*ish*, and streams results as they are discovered.
 
-By introducing the `url(...)` operator and the `///` syntax, **wxpath**'s engine is able to perform deep, recursive web crawling and extraction.
+By introducing the `url(...)` operator and the `///` syntax, wxpath's engine is able to perform deep (or paginated) web crawling and extraction.
 
 NOTE: This project is in early development. Core concepts are stable, but the API and features may change. Please report issues - in particular, deadlocked crawls or unexpected behavior - and any features you'd like to see (no guarantee they'll be implemented).
 
@@ -11,19 +12,22 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 ## Contents
 
 - [Example](#example)
-- [`url(...)` and `///url(...)` Explained](#url-and---explained)
+- [Language Design](DESIGN.md)
+- [`url(...)` and `///url(...)` Explained](#url-and-url-explained)
 - [General flow](#general-flow)
 - [Asynchronous Crawling](#asynchronous-crawling)
+- [Polite Crawling](#polite-crawling)
 - [Output types](#output-types)
-- [XPath 3.1 support](#xpath-31-support)
+- [XPath 3.1](#xpath-31-by-default)
 - [CLI](#cli)
 - [Hooks (Experimental)](#hooks-experimental)
 - [Install](#install)
-- [More Examples](#more-examples)
+- [More Examples](EXAMPLES.md)
 - [Comparisons](#comparisons)
 - [Advanced: Engine & Crawler Configuration](#advanced-engine--crawler-configuration)
 - [Project Philosophy](#project-philosophy)
 - [Warnings](#warnings)
+- [Commercial support / consulting](#commercial-support--consulting)
 - [License](#license)
 
 
@@ -32,32 +36,34 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 ```python
 import wxpath
 
-path = """
+# Crawl, extract fields, build a knowledge graph
+path_expr = """
 url('https://en.wikipedia.org/wiki/Expression_language')
  ///url(//main//a/@href[starts-with(., '/wiki/') and not(contains(., ':'))])
  /map{
-    'title':(//span[contains(@class, "mw-page-title-main")]/text())[1],
-    'url':string(base-uri(.)),
-    'short_description':(//div[contains(@class, 'shortdescription')]/text())[1]
+    'title': (//span[contains(@class, "mw-page-title-main")]/text())[1] ! string(.),
+    'url': string(base-uri(.)),
+    'short_description': //div[contains(@class, 'shortdescription')]/text() ! string(.),
+    'forward_links': //div[@id="mw-content-text"]//a/@href ! string(.)
  }
 """
 
-for item in wxpath.wxpath_async_blocking_iter(path, max_depth=1):
+for item in wxpath.wxpath_async_blocking_iter(path_expr, max_depth=1):
     print(item)
 ```
 
 Output:
 
 ```python
-map{'title': TextNode('Computer language'), 'url': 'https://en.wikipedia.org/wiki/Computer_language', 'short_description': TextNode('Formal language for communicating with a computer')}
-map{'title': TextNode('Machine-readable medium and data'), 'url': 'https://en.wikipedia.org/wiki/Machine_readable', 'short_description': TextNode('Medium capable of storing data in a format readable by a machine')}
-map{'title': TextNode('Advanced Boolean Expression Language'), 'url': 'https://en.wikipedia.org/wiki/Advanced_Boolean_Expression_Language', 'short_description': TextNode('Hardware description language and software')}
-map{'title': TextNode('Jakarta Expression Language'), 'url': 'https://en.wikipedia.org/wiki/Jakarta_Expression_Language', 'short_description': TextNode('Computer programming language')}
-map{'title': TextNode('Data Analysis Expressions'), 'url': 'https://en.wikipedia.org/wiki/Data_Analysis_Expressions', 'short_description': TextNode('Formula and data query language')}
-map{'title': TextNode('Domain knowledge'), 'url': 'https://en.wikipedia.org/wiki/Domain_knowledge', 'short_description': TextNode('Specialist knowledge within a specific field')}
-map{'title': TextNode('Rights Expression Language'), 'url': 'https://en.wikipedia.org/wiki/Rights_Expression_Language', 'short_description': TextNode('Machine-processable language used to express intellectual property rights (such as copyright)')}
-map{'title': TextNode('Computer science'), 'url': 'https://en.wikipedia.org/wiki/Computer_science', 'short_description': TextNode('Study of computation')}
+map{'title': 'Computer language', 'url': 'https://en.wikipedia.org/wiki/Computer_language', 'short_description': 'Formal language for communicating with a computer', 'forward_links': ['/wiki/Formal_language', '/wiki/Communication', ...]}
+map{'title': 'Advanced Boolean Expression Language', 'url': 'https://en.wikipedia.org/wiki/Advanced_Boolean_Expression_Language', 'short_description': 'Hardware description language and software', 'forward_links': ['/wiki/File:ABEL_HDL_example_SN74162.png', '/wiki/Hardware_description_language', ...]}
+map{'title': 'Machine-readable medium and data', 'url': 'https://en.wikipedia.org/wiki/Machine_readable', 'short_description': 'Medium capable of storing data in a format readable by a machine', 'forward_links': ['/wiki/File:EAN-13-ISBN-13.svg', '/wiki/ISBN', ...]}
+...
 ```
+
+**Note:** Some sites (including Wikipedia) may block requests without proper headers.  
+See [Advanced: Engine & Crawler Configuration](#advanced-engine--crawler-configuration) to set a custom `User-Agent`.
+
 
 The above expression does the following:
 
@@ -72,18 +78,23 @@ The above expression does the following:
 ## `url(...)` and `///url(...)` Explained
 
 - `url(...)` is a custom operator that fetches the content of the user-specified or internally generated URL and returns it as an `lxml.html.HtmlElement` for further XPath processing.
-- `///url(...)` indicates infinite/recursive traversal. It tells **wxpath** to continue following links indefinitely, up to the specified `max_depth`. Unlike repeated `url()` hops, it allows a single expression to describe unbounded graph exploration. WARNING: Use with caution and constraints (via `max_depth` or XPath predicates) to avoid traversal explosion.
+- `///url(...)` indicates a deep crawl. It tells the runtime engine to continue following links up to the specified `max_depth`. Unlike repeated `url()` hops, it allows a single expression to describe deeper graph exploration. WARNING: Use with caution and constraints (via `max_depth` or XPath predicates) to avoid traversal explosion.
+
+
+## Language Design
+
+See [DESIGN.md](DESIGN.md) for details of the language design. You will see the core concepts and design the language from the ground up.
 
 
 ## General flow
 
 **wxpath** evaluates an expression as a list of traversal and extraction steps (internally referred to as `Segment`s).
 
-`url(...)` creates crawl tasks either statically (via a fixed URL) or dynamically (via a URL derived from the XPath expression). **URLs are deduplicated globally, not per-depth and on a best-effort basis**.
+`url(...)` creates crawl tasks either statically (via a fixed URL) or dynamically (via a URL derived from the XPath expression). **URLs are deduplicated globally, on a best-effort basis - not per-depth**.
 
 XPath segments operate on fetched documents (fetched via the immediately preceding `url(...)` operations).
 
-`///url(...)` indicates infinite/recursive traversal - it proceeds breadth-first-*ish* up to `max_depth`.
+`///url(...)` indicates deep crawling - it proceeds breadth-first-*ish* up to `max_depth`.
 
 Results are yielded as soon as they are ready.
 
@@ -108,7 +119,7 @@ asyncio.run(main())
 
 ### Blocking, Concurrent Requests
 
-**wxpath** also supports concurrent requests using an asyncio-in-sync pattern, allowing you to crawl multiple pages concurrently while maintaining the simplicity of synchronous code. This is particularly useful for crawls in strictly synchronous execution environments (i.e., not inside an `asyncio` event loop) where performance is a concern.
+**wxpath** also provides an asyncio-in-sync API, allowing you to crawl multiple pages concurrently while maintaining the simplicity of synchronous code. This is particularly useful for crawls in strictly synchronous execution environments (i.e., not inside an `asyncio` event loop) where performance is a concern.
 
 ```python
 from wxpath import wxpath_async_blocking_iter
@@ -117,10 +128,14 @@ path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')///url(//@h
 items = list(wxpath_async_blocking_iter(path_expr, max_depth=1))
 ```
 
+## Polite Crawling
+
+**wxpath** respects [robots.txt](https://en.wikipedia.org/wiki/Robots_exclusion_standard) by default via the `WXPathEngine(..., robotstxt=True)` constructor.
+
 
 ## Output types
 
-The wxpath Python API yields structured objects, not just strings.
+The wxpath Python API yields structured objects.
 
 Depending on the expression, results may include:
 
@@ -168,10 +183,11 @@ path_expr = """
 
 The following example demonstrates how to crawl Wikipedia starting from the "Expression language" page, extract links to other wiki pages, and retrieve specific fields from each linked page.
 
-WARNING: Due to the everchanging nature of web content, the output may vary over time.
+NOTE: Due to the everchanging nature of web content, the output may vary over time.
 ```bash
-> wxpath --depth 1 "\
-    url('https://en.wikipedia.org/wiki/Expression_language')\
+> wxpath --depth 1 \
+    --header "User-Agent: my-app/0.1 (contact: you@example.com)" \
+    "url('https://en.wikipedia.org/wiki/Expression_language') \
     ///url(//div[@id='mw-content-text']//a/@href[starts-with(., '/wiki/') \
         and not(matches(@href, '^(?:/wiki/)?(?:Wikipedia|File|Template|Special|Template_talk|Help):'))]) \
     /map{ \
@@ -190,6 +206,18 @@ WARNING: Due to the everchanging nature of web content, the output may vary over
 {"title": "Jakarta Expression Language", "short_description": "Computer programming language", "url": "https://en.wikipedia.org/wiki/Jakarta_Expression_Language", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
 {"title": "Rights Expression Language", "short_description": [], "url": "https://en.wikipedia.org/wiki/Rights_Expression_Language", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
 {"title": "Computer science", "short_description": "Study of computation", "url": "https://en.wikipedia.org/wiki/Computer_science", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
+```
+
+Command line options:
+
+```bash
+--depth                <depth>       Max crawl depth
+--verbose              [true|false]  Provides superficial CLI information
+--debug                [true|false]  Provides verbose runtime output and information
+--concurrency          <concurrency> Number of concurrent fetches
+--concurrency-per-host <concurrency> Number of concurrent fetches per host
+--header               "Key:Value"   Add a custom header (e.g., 'Key:Value'). Can be used multiple times.
+--respect-robots       [true|false] (Default: True) Respects robots.txt
 ```
 
 
@@ -237,6 +265,8 @@ hooks.register(hooks.JSONLWriter)
 
 ## Install
 
+Requires Python 3.10+.
+
 ```
 pip install wxpath
 ```
@@ -265,13 +295,20 @@ crawler = Crawler(
     concurrency=8,
     per_host=2,
     timeout=10,
+    respect_robots=False,
+    headers={
+        "User-Agent": "my-app/0.1.0 (contact: you@example.com)", # Sites like Wikipedia will appreciate this
+    },
 )
 
 # If `crawler` is not specified, a default Crawler will be created with
-# the provided concurrency and per_host values, or with defaults.
+# the provided concurrency, per_host, and respect_robots values, or with defaults.
 engine = WXPathEngine(
-    # concurrency=16,
-    # per_host=8, 
+    # concurrency: int = 16, 
+    # per_host: int = 8,
+    # respect_robots: bool = True,
+    # allowed_response_codes: set[int] = {200},
+    # allow_redirects: bool = True,
     crawler=crawler,
 )
 
@@ -285,7 +322,7 @@ items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 
 ### Principles
 
-- Enable declarative, recursive scraping without boilerplate
+- Enable declarative, crawling and scraping without boilerplate
 - Stay lightweight and composable
 - Asynchronous support for high-performance crawls
 
@@ -296,21 +333,32 @@ items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 - Requests are performed concurrently.
 - Results are streamed as soon as they are available.
 
-### Non-Goals/Limitations (for now)
+### Limitations (for now)
 
-- Strict result ordering
+The following features are not yet supported:
+
 - Persistent scheduling or crawl resumption
 - Automatic proxy rotation
 - Browser-based rendering (JavaScript execution)
+- Strict result ordering
 
 
 ## WARNINGS!!!
 
 - Be respectful when crawling websites. A scrapy-inspired throttler is enabled by default.
-- Recursive (`///`) crawls require user discipline to avoid unbounded expansion (traversal explosion).
+- Deep crawls (`///`) require user discipline to avoid unbounded expansion (traversal explosion).
 - Deadlocks and hangs are possible in certain situations (e.g., all tasks waiting on blocked requests). Please report issues if you encounter such behavior.
 - Consider using timeouts, `max_depth`, and XPath predicates and filters to limit crawl scope.
 
+
+## Commercial support / consulting
+
+If you want help building or operating crawlers/data feeds with wxpath (extraction, scheduling, monitoring, breakage fixes) or other web-scraping needs, please contact me at: rodrigopala91@gmail.com.
+
+
+### Donate
+
+If you like wxpath and want to support its development, please consider [donating](https://www.paypal.com/donate/?business=WDNDK6J6PJEXY&no_recurring=0&item_name=Thanks+for+using+wxpath%21+Donations+fund+development%2C+docs%2C+and+bug+fixes.+If+wxpath+saved+you+time%2C+a+small+contribution+helps%21&currency_code=USD).
 
 ## License
 

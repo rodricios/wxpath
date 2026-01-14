@@ -4,17 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wxpath"
-version = "0.2.0"
+version = "0.3.0"
 description = "wxpath - a declarative web crawler and data extractor"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
     { name = "Rodrigo Palacios", email = "rodrigopala91@gmail.com" }
 ]
 license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
-    "requests>=2.0",
     "lxml>=4.0",
     "elementpath>=5.0.0,<=5.0.3",
     "aiohttp>=3.8.0,<=3.12.15"
@@ -39,7 +38,7 @@ where = ["src"]
 include = ["wxpath", "wxpath.*"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py310"
 line-length = 100
 
 lint.select = [

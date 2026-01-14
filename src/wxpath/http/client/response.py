@@ -10,5 +10,5 @@ class Response:
     request: Request
     status: int
     body: bytes
-    headers: dict | None = None
+    headers: dict[str, str] | None = None
     error: Optional[Exception] = field(default=None, kw_only=True)

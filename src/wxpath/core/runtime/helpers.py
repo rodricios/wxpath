@@ -1,4 +1,3 @@
-import requests
 from lxml import etree, html
 
 from wxpath import patches
@@ -40,9 +39,3 @@ def detach_html_root(elem, base_url=None):
         new_root.base_url = base_url
 
     return new_root
-
-
-def fetch_html(url):
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    return response.content

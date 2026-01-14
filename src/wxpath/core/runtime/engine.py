@@ -2,11 +2,12 @@ import asyncio
 import contextlib
 import inspect
 from collections import deque
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Iterator
 
 from lxml.html import HtmlElement
 
 from wxpath import patches  # noqa: F401
+from wxpath.core import parser
 from wxpath.core.models import (
     CrawlIntent,
     CrawlTask,
@@ -16,7 +17,7 @@ from wxpath.core.models import (
     ProcessIntent,
 )
 from wxpath.core.ops import get_operator
-from wxpath.core.parser import parse_wxpath_expr
+from wxpath.core.parser import Binary, Segment, Segments
 from wxpath.core.runtime.helpers import parse_html
 from wxpath.hooks.registry import FetchContext, get_hooks
 from wxpath.http.client.crawler import Crawler
@@ -27,7 +28,21 @@ log = get_logger(__name__)
 
 
 class HookedEngineBase:
-    async def post_fetch_hooks(self, body, task):
+    """Common hook invocation helpers shared by engine variants."""
+
+    async def post_fetch_hooks(self, body: bytes | str, task: CrawlTask) -> bytes | str | None:
+        """Run registered `post_fetch` hooks over a fetched response body.
+
+        Hooks may be synchronous or asynchronous and can transform or drop the
+        response payload entirely.
+
+        Args:
+            body: Raw response body bytes from the crawler.
+            task: The `CrawlTask` that produced the response.
+
+        Returns:
+            The transformed body, or `None` if any hook chooses to drop it.
+        """
         for hook in get_hooks():
             hook_method = getattr(hook, "post_fetch", lambda _, b: b)
             if inspect.iscoroutinefunction(hook_method):
@@ -45,7 +60,18 @@ class HookedEngineBase:
                 break
         return body
     
-    async def post_parse_hooks(self, elem, task):
+    async def post_parse_hooks(
+        self, elem: HtmlElement | None, task: CrawlTask
+    ) -> HtmlElement | None:
+        """Run registered `post_parse` hooks on a parsed DOM element.
+
+        Args:
+            elem: Parsed `lxml` element to process.
+            task: The originating `CrawlTask`.
+
+        Returns:
+            The transformed element, or `None` if a hook drops the branch.
+        """
         for hook in get_hooks():
             hook_method = getattr(hook, "post_parse", lambda _, e: e)
             if inspect.iscoroutinefunction(hook_method):
@@ -73,7 +99,15 @@ class HookedEngineBase:
                 break
         return elem
     
-    async def post_extract_hooks(self, value):
+    async def post_extract_hooks(self, value: Any) -> Any | None:
+        """Run registered `post_extract` hooks on extracted values.
+
+        Args:
+            value: The extracted datum to post-process.
+
+        Returns:
+            The transformed value, or `None` if a hook drops it.
+        """
         for hook in get_hooks():
             hook_method = getattr(hook, "post_extract", lambda v: v)
             if inspect.iscoroutinefunction(hook_method):
@@ -87,35 +121,65 @@ class HookedEngineBase:
 
 
 class WXPathEngine(HookedEngineBase):
-    """
-    Main class for executing wxpath expressions.
+    """Main class for executing wxpath expressions.
 
-    The core pattern and directive for this engine is to build a queue of CrawlTasks, 
-    which is crawled and processed FIFO. The traversal of the queue (and therefore 
-    the web graph) is done concurrently and in BFS-ish order.
+    The core pattern is to build a queue of CrawlTasks that are crawled and
+    processed FIFO. Traversal of the queue (and therefore the web graph) is
+    done concurrently in BFS-ish order.
 
     Args:
-        crawler: Crawler instance
-        concurrency: number of concurrent fetches at the Crawler (request engine) level
-        per_host: number of concurrent fetches per host
+        crawler: Crawler instance to use for HTTP requests.
+        concurrency: Number of concurrent fetches at the Crawler level.
+        per_host: Number of concurrent fetches per host.
+        respect_robots: Whether to respect robots.txt directives.
+        allowed_response_codes: Set of allowed HTTP response codes. Defaults
+            to ``{200}``. Responses may still be filtered and dropped.
+        allow_redirects: Whether to follow HTTP redirects. Defaults to ``True``.
     """
     def __init__(
             self, 
             crawler: Crawler | None = None,
             concurrency: int = 16, 
-            per_host: int = 8
+            per_host: int = 8,
+            respect_robots: bool = True,
+            allowed_response_codes: set[int] = None,
+            allow_redirects: bool = True,
         ):
+        # NOTE: Will grow unbounded in large crawls. Consider a LRU cache, or bloom filter.
         self.seen_urls: set[str] = set()
-        self.crawler = crawler or Crawler(concurrency=concurrency, per_host=per_host)
+        self.crawler = crawler or Crawler(
+            concurrency=concurrency, 
+            per_host=per_host,
+            respect_robots=respect_robots
+        )
+        self.allowed_response_codes = allowed_response_codes or {200}
+        self.allow_redirects = allow_redirects
+        if allow_redirects:
+            self.allowed_response_codes |= {301, 302, 303, 307, 308}
 
-    async def run(self, expression: str, max_depth: int):
-        segments = parse_wxpath_expr(expression)
+    async def run(self, expression: str, max_depth: int) -> AsyncGenerator[Any, None]:
+        """Execute a wxpath expression concurrently and yield results.
+
+        Builds and drives a BFS-like crawl pipeline that honors robots rules,
+        throttling, and hook callbacks while walking the web graph.
+
+        Args:
+            expression: WXPath expression string to evaluate.
+            max_depth: Maximum crawl depth to follow for url hops.
+
+        Yields:
+            Extracted values produced by the expression (HTML elements or
+            wxpath-specific value types).
+        """
+        segments = parser.parse(expression)
 
         queue: asyncio.Queue[CrawlTask] = asyncio.Queue()
         inflight: dict[str, CrawlTask] = {}
         pending_tasks = 0
 
         def is_terminal():
+            # NOTE: consider adopting state machine pattern for determining 
+            #       the current state of the engine.
             return queue.empty() and pending_tasks <= 0
 
         async with self.crawler as crawler:
@@ -177,7 +241,7 @@ class WXPathEngine(HookedEngineBase):
                     continue
 
                 # NOTE: Consider allowing redirects
-                if resp.status != 200 or not resp.body:
+                if resp.status not in self.allowed_response_codes or not resp.body:
                     log.warning(f"Got non-200 response from {resp.request.url}")
                     if is_terminal():
                         break
@@ -226,20 +290,36 @@ class WXPathEngine(HookedEngineBase):
     async def _process_pipeline(
         self,
         task: CrawlTask,
-        elem, 
+        elem: Any, 
         depth: int,
         max_depth: int,
         queue: asyncio.Queue[CrawlTask],
-    ):
-        mini_queue: deque[(HtmlElement, list[tuple[str, str]])] = deque([(elem, task.segments)])
+    ) -> AsyncGenerator[Any, None]:
+        """Process a queue of intents for a single crawl branch.
+
+        Traverses wxpath segments depth-first within a page while coordinating
+        newly discovered crawl intents back to the shared queue.
+
+        Args:
+            task: The originating crawl task for this branch.
+            elem: Current DOM element (or extracted value) being processed.
+            depth: Current traversal depth.
+            max_depth: Maximum permitted crawl depth.
+            queue: Shared crawl queue for enqueuing downstream URLs.
+
+        Yields:
+            object: Extracted values or processed elements as produced by operators.
+        """
+        mini_queue: deque[tuple[HtmlElement | Any, list[Binary | Segment] | Segments]] = deque(
+            [(elem, task.segments)]
+        )
 
         while mini_queue:
-            elem, segments = mini_queue.popleft()
-            
-            op, _ = segments[0]
-            operator = get_operator(op)
+            elem, bin_or_segs = mini_queue.popleft()
 
-            intents = operator(elem, segments, depth)
+            binary_or_segment = bin_or_segs if isinstance(bin_or_segs, Binary) else bin_or_segs[0]
+            operator = get_operator(binary_or_segment)
+            intents = operator(elem, bin_or_segs, depth)
 
             if not intents:
                 return
@@ -253,6 +333,7 @@ class WXPathEngine(HookedEngineBase):
                     # if intent.url not in self.seen_urls and next_depth <= max_depth:
                     if next_depth <= max_depth:
                         # self.seen_urls.add(intent.url)
+                        log.debug(f"Depth: {next_depth}; Enqueuing {intent.url}")
                         queue.put_nowait(
                             CrawlTask(
                                 elem=None,
@@ -272,29 +353,33 @@ class WXPathEngine(HookedEngineBase):
 
 def wxpath_async(path_expr: str, 
                  max_depth: int, 
-                 engine: WXPathEngine = None) -> AsyncGenerator[Any, None]:
+                 engine: WXPathEngine | None = None) -> AsyncGenerator[Any, None]:
     if engine is None:
         engine = WXPathEngine()
     return engine.run(path_expr, max_depth)
 
 
 ##### ASYNC IN SYNC #####
-def wxpath_async_blocking_iter(path_expr, max_depth=1, engine: WXPathEngine = None):
-    """
-    Evaluate a wxpath expression using concurrent breadth-first traversal.
-    
-    Args:
-        path_expr (str): A wxpath expression.
-        max_depth (int, optional): Maximum crawl depth. Must be at least the
-            number of `url*` segments minus one. Defaults to `1`.
-
-    Yields:
-        lxml.html.HtmlElement | wxpath.models.WxStr | dict | Any: The same objects
-        produced by the sequential evaluator.
+def wxpath_async_blocking_iter(
+    path_expr: str,
+    max_depth: int = 1,
+    engine: WXPathEngine | None = None,
+) -> Iterator[Any]:
+    """Evaluate a wxpath expression using concurrent breadth-first traversal.
 
     Warning:
         Spins up its own event loop therefore this function must **not** be
         invoked from within an active asyncio event loop.
+
+    Args:
+        path_expr: A wxpath expression.
+        max_depth: Maximum crawl depth. Must be at least the number of
+            ``url*`` segments minus one.
+        engine: Optional pre-configured WXPathEngine instance.
+
+    Yields:
+        object: Extracted objects (HtmlElement, WxStr, dict, or other values)
+        produced by the expression evaluator.
     """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -311,5 +396,11 @@ def wxpath_async_blocking_iter(path_expr, max_depth=1, engine: WXPathEngine = No
         loop.close()
 
 
-def wxpath_async_blocking(path_expr, max_depth=1, engine: WXPathEngine = None):
-    return list(wxpath_async_blocking_iter(path_expr, max_depth=max_depth, engine=engine))
+def wxpath_async_blocking(
+    path_expr: str,
+    max_depth: int = 1,
+    engine: WXPathEngine | None = None,
+) -> list[Any]:
+    return list(
+        wxpath_async_blocking_iter(path_expr, max_depth=max_depth, engine=engine)
+    )
