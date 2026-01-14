@@ -7,6 +7,8 @@ import pytest
 from tests.utils import MockCrawler
 from wxpath.core.runtime import engine
 from wxpath.core.runtime.engine import WXPathEngine
+from wxpath.http.client.request import Request
+from wxpath.http.client.response import Response
 
 
 def _generate_fake_fetch_html(pages: dict[str, bytes]):
@@ -22,6 +24,31 @@ def _generate_fake_fetch_html(pages: dict[str, bytes]):
 async def _collect_async(gen):
     """Consume an **async** generator and return a list of its items."""
     return [item async for item in gen]
+
+
+class _FakeCrawlerWithStatus:
+    """Minimal crawler stub that lets us control response status codes."""
+    def __init__(self, responses_by_url):
+        self._q = asyncio.Queue()
+        self._responses_by_url = responses_by_url
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        pass
+
+    def submit(self, request):
+        resp = self._responses_by_url.get(request.url)
+        if resp is None:
+            raise AssertionError(f"Unexpected URL fetched: {request.url!r}")
+        self._q.put_nowait(resp)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        return await self._q.get()
 
 
 # --------------------------------------------------------------------------- #
@@ -519,6 +546,57 @@ def test_engine_run__infinite_crawl_max_depth_1(monkeypatch):
         'http://test/a.html',
         'http://test/b.html',
     ]
+
+
+@pytest.mark.asyncio
+async def test_engine_allow_redirects_accepts_3xx(monkeypatch):
+    """When allow_redirects=True, 3xx responses are accepted."""
+    target_url = "http://redirect.test/"
+    responses = {
+        target_url: Response(
+            request=Request(target_url),
+            status=301,
+            body=b"<html><body><p>redir</p></body></html>",
+            headers={},
+        )
+    }
+
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: _FakeCrawlerWithStatus(responses),
+    )
+
+    eng = WXPathEngine(allow_redirects=True)
+    results = await _collect_async(eng.run(f"url('{target_url}')", max_depth=0))
+
+    assert len(results) == 1
+    assert getattr(results[0], "base_url", None) == target_url
+
+
+@pytest.mark.asyncio
+async def test_engine_allow_redirects_false_drops_3xx(monkeypatch):
+    """When allow_redirects=False, 3xx responses are filtered out."""
+    target_url = "http://redirect.test/"
+    responses = {
+        target_url: Response(
+            request=Request(target_url),
+            status=302,
+            body=b"<html><body><p>redir</p></body></html>",
+            headers={},
+        )
+    }
+
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: _FakeCrawlerWithStatus(responses),
+    )
+
+    eng = WXPathEngine(allow_redirects=False)
+    results = await _collect_async(eng.run(f"url('{target_url}')", max_depth=0))
+
+    assert results == []
 
 
 def test_engine_run__infinite_crawl__query__max_depth_1(monkeypatch):

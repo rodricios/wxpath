@@ -134,6 +134,7 @@ class WXPathEngine(HookedEngineBase):
         respect_robots: Whether to respect robots.txt directives.
         allowed_response_codes: Set of allowed HTTP response codes. Defaults
             to ``{200}``. Responses may still be filtered and dropped.
+        allow_redirects: Whether to follow HTTP redirects. Defaults to ``True``.
     """
     def __init__(
             self, 
@@ -141,7 +142,8 @@ class WXPathEngine(HookedEngineBase):
             concurrency: int = 16, 
             per_host: int = 8,
             respect_robots: bool = True,
-            allowed_response_codes: list[int] = None,
+            allowed_response_codes: set[int] = None,
+            allow_redirects: bool = True,
         ):
         # NOTE: Will grow unbounded in large crawls. Consider a LRU cache, or bloom filter.
         self.seen_urls: set[str] = set()
@@ -151,6 +153,9 @@ class WXPathEngine(HookedEngineBase):
             respect_robots=respect_robots
         )
         self.allowed_response_codes = allowed_response_codes or {200}
+        self.allow_redirects = allow_redirects
+        if allow_redirects:
+            self.allowed_response_codes |= {301, 302, 303, 307, 308}
 
     async def run(self, expression: str, max_depth: int) -> AsyncGenerator[Any, None]:
         """Execute a wxpath expression concurrently and yield results.

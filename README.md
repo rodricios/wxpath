@@ -1,9 +1,10 @@
+# **wxpath** - declarative web crawling with XPath 
 
-# `wxpath` - declarative web crawling with XPath
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 
-**wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, you describe what to follow and what to extract in a single expression. **wxpath** executes that expression concurrently, breadth-first-*ish*, and streams results as they are discovered.
+**wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, wxpath lets you describe what to follow and what to extract in a single expression. **wxpath** executes that expression concurrently, breadth-first-*ish*, and streams results as they are discovered.
 
-By introducing the `url(...)` operator and the `///` syntax, **wxpath**'s engine is able to perform deep (or paginated) web crawling and extraction.
+By introducing the `url(...)` operator and the `///` syntax, wxpath's engine is able to perform deep (or paginated) web crawling and extraction.
 
 NOTE: This project is in early development. Core concepts are stable, but the API and features may change. Please report issues - in particular, deadlocked crawls or unexpected behavior - and any features you'd like to see (no guarantee they'll be implemented).
 
@@ -54,11 +55,15 @@ for item in wxpath.wxpath_async_blocking_iter(path_expr, max_depth=1):
 Output:
 
 ```python
-map{'title': 'Computer language', 'url': 'https://en.wikipedia.org/wiki/Computer_language', 'short_description': 'Formal language for communicating with a computer', 'forward_links': ['/wiki/Formal_language', '/wiki/Communication', '/wiki/Computer',...]}
-map{'title': 'Advanced Boolean Expression Language', 'url': 'https://en.wikipedia.org/wiki/Advanced_Boolean_Expression_Language', 'short_description': 'Hardware description language and software', 'forward_links': ['/wiki/File:ABEL_HDL_example_SN74162.png', '/wiki/Hardware_description_language', '/wiki/Programmable_logic_device', ...]}
-map{'title': 'Machine-readable medium and data', 'url': 'https://en.wikipedia.org/wiki/Machine_readable', 'short_description': 'Medium capable of storing data in a format readable by a machine', 'forward_links': ['/wiki/File:EAN-13-ISBN-13.svg', '/wiki/ISBN', '/wiki/European_Article_Number', ...]}
+map{'title': 'Computer language', 'url': 'https://en.wikipedia.org/wiki/Computer_language', 'short_description': 'Formal language for communicating with a computer', 'forward_links': ['/wiki/Formal_language', '/wiki/Communication', ...]}
+map{'title': 'Advanced Boolean Expression Language', 'url': 'https://en.wikipedia.org/wiki/Advanced_Boolean_Expression_Language', 'short_description': 'Hardware description language and software', 'forward_links': ['/wiki/File:ABEL_HDL_example_SN74162.png', '/wiki/Hardware_description_language', ...]}
+map{'title': 'Machine-readable medium and data', 'url': 'https://en.wikipedia.org/wiki/Machine_readable', 'short_description': 'Medium capable of storing data in a format readable by a machine', 'forward_links': ['/wiki/File:EAN-13-ISBN-13.svg', '/wiki/ISBN', ...]}
 ...
 ```
+
+**Note:** Some sites (including Wikipedia) may block requests without proper headers.  
+See [Advanced: Engine & Crawler Configuration](#advanced-engine--crawler-configuration) to set a custom `User-Agent`.
+
 
 The above expression does the following:
 
@@ -73,19 +78,19 @@ The above expression does the following:
 ## `url(...)` and `///url(...)` Explained
 
 - `url(...)` is a custom operator that fetches the content of the user-specified or internally generated URL and returns it as an `lxml.html.HtmlElement` for further XPath processing.
-- `///url(...)` indicates a deep crawl. It tells **wxpath** to continue following links up to the specified `max_depth`. Unlike repeated `url()` hops, it allows a single expression to describe deeper graph exploration. WARNING: Use with caution and constraints (via `max_depth` or XPath predicates) to avoid traversal explosion.
+- `///url(...)` indicates a deep crawl. It tells the runtime engine to continue following links up to the specified `max_depth`. Unlike repeated `url()` hops, it allows a single expression to describe deeper graph exploration. WARNING: Use with caution and constraints (via `max_depth` or XPath predicates) to avoid traversal explosion.
 
 
 ## Language Design
 
-See [DESIGN.md](DESIGN.md) for details of the language design. You will see the core concepts and design the language from ground up.
+See [DESIGN.md](DESIGN.md) for details of the language design. You will see the core concepts and design the language from the ground up.
 
 
 ## General flow
 
 **wxpath** evaluates an expression as a list of traversal and extraction steps (internally referred to as `Segment`s).
 
-`url(...)` creates crawl tasks either statically (via a fixed URL) or dynamically (via a URL derived from the XPath expression). **URLs are deduplicated globally, not per-depth and on a best-effort basis**.
+`url(...)` creates crawl tasks either statically (via a fixed URL) or dynamically (via a URL derived from the XPath expression). **URLs are deduplicated globally, on a best-effort basis - not per-depth**.
 
 XPath segments operate on fetched documents (fetched via the immediately preceding `url(...)` operations).
 
@@ -125,12 +130,12 @@ items = list(wxpath_async_blocking_iter(path_expr, max_depth=1))
 
 ## Polite Crawling
 
-`wxpath` respects [robots.txt](https://en.wikipedia.org/wiki/Robots_exclusion_standard) by default via the `WXPathEngine(..., robotstxt=True)` constructor.
+**wxpath** respects [robots.txt](https://en.wikipedia.org/wiki/Robots_exclusion_standard) by default via the `WXPathEngine(..., robotstxt=True)` constructor.
 
 
 ## Output types
 
-The wxpath Python API yields structured objects, not just strings.
+The wxpath Python API yields structured objects.
 
 Depending on the expression, results may include:
 
@@ -178,10 +183,11 @@ path_expr = """
 
 The following example demonstrates how to crawl Wikipedia starting from the "Expression language" page, extract links to other wiki pages, and retrieve specific fields from each linked page.
 
-WARNING: Due to the everchanging nature of web content, the output may vary over time.
+NOTE: Due to the everchanging nature of web content, the output may vary over time.
 ```bash
-> wxpath --depth 1 "\
-    url('https://en.wikipedia.org/wiki/Expression_language')\
+> wxpath --depth 1 \
+    --header "User-Agent: my-app/0.1 (contact: you@example.com)" \
+    "url('https://en.wikipedia.org/wiki/Expression_language') \
     ///url(//div[@id='mw-content-text']//a/@href[starts-with(., '/wiki/') \
         and not(matches(@href, '^(?:/wiki/)?(?:Wikipedia|File|Template|Special|Template_talk|Help):'))]) \
     /map{ \
@@ -200,6 +206,18 @@ WARNING: Due to the everchanging nature of web content, the output may vary over
 {"title": "Jakarta Expression Language", "short_description": "Computer programming language", "url": "https://en.wikipedia.org/wiki/Jakarta_Expression_Language", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
 {"title": "Rights Expression Language", "short_description": [], "url": "https://en.wikipedia.org/wiki/Rights_Expression_Language", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
 {"title": "Computer science", "short_description": "Study of computation", "url": "https://en.wikipedia.org/wiki/Computer_science", "backlink": "https://en.wikipedia.org/wiki/Expression_language", "depth": 1.0}
+```
+
+Command line options:
+
+```bash
+--depth                <depth>       Max crawl depth
+--verbose              [true|false]  Provides superficial CLI information
+--debug                [true|false]  Provides verbose runtime output and information
+--concurrency          <concurrency> Number of concurrent fetches
+--concurrency-per-host <concurrency> Number of concurrent fetches per host
+--header               "Key:Value"   Add a custom header (e.g., 'Key:Value'). Can be used multiple times.
+--respect-robots       [true|false] (Default: True) Respects robots.txt
 ```
 
 
@@ -247,6 +265,8 @@ hooks.register(hooks.JSONLWriter)
 
 ## Install
 
+Requires Python 3.10+.
+
 ```
 pip install wxpath
 ```
@@ -276,14 +296,19 @@ crawler = Crawler(
     per_host=2,
     timeout=10,
     respect_robots=False,
+    headers={
+        "User-Agent": "my-app/0.1.0 (contact: you@example.com)", # Sites like Wikipedia will appreciate this
+    },
 )
 
 # If `crawler` is not specified, a default Crawler will be created with
 # the provided concurrency, per_host, and respect_robots values, or with defaults.
 engine = WXPathEngine(
-    # concurrency=16,
-    # per_host=8, 
-    # respect_robots=True,
+    # concurrency: int = 16, 
+    # per_host: int = 8,
+    # respect_robots: bool = True,
+    # allowed_response_codes: set[int] = {200},
+    # allow_redirects: bool = True,
     crawler=crawler,
 )
 
@@ -312,10 +337,10 @@ items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 
 The following features are not yet supported:
 
-- Strict result ordering
 - Persistent scheduling or crawl resumption
 - Automatic proxy rotation
-- ~~Browser-based rendering (JavaScript execution)~~
+- Browser-based rendering (JavaScript execution)
+- Strict result ordering
 
 
 ## WARNINGS!!!
@@ -328,7 +353,7 @@ The following features are not yet supported:
 
 ## Commercial support / consulting
 
-If you want help building or operating crawlers/data feeds with wxpath (extraction, scheduling, monitoring, breakage fixes) or other web-scraping needs, please contact me at: rodrigopala91@gmail.com
+If you want help building or operating crawlers/data feeds with wxpath (extraction, scheduling, monitoring, breakage fixes) or other web-scraping needs, please contact me at: rodrigopala91@gmail.com.
 
 
 ### Donate

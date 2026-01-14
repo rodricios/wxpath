@@ -43,7 +43,7 @@ class Crawler:
         self.concurrency = concurrency
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._headers   = HEADERS | (headers or {}) # merge headers
-        self._proxies = proxies or {}
+        self._proxies = proxies if (isinstance(proxies, defaultdict) or proxies) else {}
         self.respect_robots = respect_robots
 
         self.retry_policy = retry_policy or RetryPolicy()
@@ -121,7 +121,15 @@ class Crawler:
 
     def _proxy_for(self, url: str) -> str | None:
         host = urllib.parse.urlsplit(url).hostname
-        return self._proxies.get(host)
+        try:
+            # bracket notation first, for defaultdicts
+            value = self._proxies[host]
+        except KeyError:
+            value = self._proxies.get(host)
+        
+        if not value:
+            log.debug("proxy", extra={"host": host, "value": value})
+        return value
 
     async def _worker(self) -> None:
         """Worker loop that fetches pending requests and enqueues results."""
