@@ -28,6 +28,7 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 - [Project Philosophy](#project-philosophy)
 - [Warnings](#warnings)
 - [Commercial support / consulting](#commercial-support--consulting)
+- [Versioning](#versioning)
 - [License](#license)
 
 
@@ -359,6 +360,13 @@ If you want help building or operating crawlers/data feeds with wxpath (extracti
 ### Donate
 
 If you like wxpath and want to support its development, please consider [donating](https://www.paypal.com/donate/?business=WDNDK6J6PJEXY&no_recurring=0&item_name=Thanks+for+using+wxpath%21+Donations+fund+development%2C+docs%2C+and+bug+fixes.+If+wxpath+saved+you+time%2C+a+small+contribution+helps%21&currency_code=USD).
+
+
+## Versioning
+
+**wxpath** follows [semver](https://semver.org): `<MAJOR>.<MINOR>.<PATCH>`.
+
+However, pre-1.0.0 follows `0.<MAJOR>.<MINOR|PATCH>`.
 
 ## License
 
