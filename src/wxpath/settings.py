@@ -104,3 +104,5 @@ class AttrDict(dict):
 
 
 SETTINGS = AttrDict(SETTINGS)
+CACHE_SETTINGS = SETTINGS.http.client.cache
+CRAWLER_SETTINGS = SETTINGS.http.client.crawler

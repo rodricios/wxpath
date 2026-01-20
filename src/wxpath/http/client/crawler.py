@@ -126,6 +126,17 @@ class Crawler:
         self.respect_robots = respect_robots if respect_robots is not None else cfg.respect_robots
         self._robots_policy: RobotsTxtPolicy | None = None
 
+        # WARN: If SQLiteBackend caching is enabled and min(concurrency, per_host) > 1,
+        #       write-contention is likely to occur.
+        if (CACHE_SETTINGS.enabled 
+            and CACHE_SETTINGS.backend == "sqlite"
+            and min(self.concurrency, self.per_host) > 1
+            ):
+            log.warning(
+                "SQLiteBackend caching is enabled and min(concurrency, per_host) > 1. "
+                "Write-contention is likely to occur. Consider using RedisBackend."
+            )
+
     def build_session(self) -> aiohttp.ClientSession:
         """Construct an `aiohttp.ClientSession` with tracing and pooling."""
         trace_config = build_trace_config(self._stats)

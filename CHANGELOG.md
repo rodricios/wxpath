@@ -10,3 +10,8 @@
 - Polite crawling by default
 - New Pratt parser
 - Add DSL grammar design document
+
+## 0.4.0
+- Settings module
+- Persistence and caching
+- Progress bar

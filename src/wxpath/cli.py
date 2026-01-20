@@ -117,7 +117,10 @@ def main():
     engine = WXPathEngine(crawler=crawler)
 
     try:
-        for r in wxpath_async_blocking_iter(args.expression, args.depth, engine):
+        for r in wxpath_async_blocking_iter(
+            path_expr=args.expression, 
+            max_depth=args.depth, 
+            engine=engine):
             clean = simplify(r)
             print(json.dumps(clean, ensure_ascii=False), flush=True)
     except BrokenPipeError:
