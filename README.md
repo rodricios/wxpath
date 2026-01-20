@@ -19,7 +19,10 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 - [Polite Crawling](#polite-crawling)
 - [Output types](#output-types)
 - [XPath 3.1](#xpath-31-by-default)
+- [Progress Bar](#progress-bar)
 - [CLI](#cli)
+- [Persistence and Caching](#persistence-and-caching)
+- [Settings](#settings)
 - [Hooks (Experimental)](#hooks-experimental)
 - [Install](#install)
 - [More Examples](EXAMPLES.md)
@@ -28,6 +31,7 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 - [Project Philosophy](#project-philosophy)
 - [Warnings](#warnings)
 - [Commercial support / consulting](#commercial-support--consulting)
+- [Versioning](#versioning)
 - [License](#license)
 
 
@@ -35,17 +39,21 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 
 ```python
 import wxpath
+from wxpath.settings import CRAWLER_SETTINGS
+
+# Custom headers for politeness; necessary for some sites (e.g., Wikipedia)
+CRAWLER_SETTINGS.headers = {'User-Agent': 'my-app/0.4.0 (contact: you@example.com)'}
 
 # Crawl, extract fields, build a knowledge graph
 path_expr = """
 url('https://en.wikipedia.org/wiki/Expression_language')
- ///url(//main//a/@href[starts-with(., '/wiki/') and not(contains(., ':'))])
- /map{
-    'title': (//span[contains(@class, "mw-page-title-main")]/text())[1] ! string(.),
-    'url': string(base-uri(.)),
-    'short_description': //div[contains(@class, 'shortdescription')]/text() ! string(.),
-    'forward_links': //div[@id="mw-content-text"]//a/@href ! string(.)
- }
+  ///url(//main//a/@href[starts-with(., '/wiki/') and not(contains(., ':'))])
+    /map{
+        'title': (//span[contains(@class, "mw-page-title-main")]/text())[1] ! string(.),
+        'url': string(base-uri(.)),
+        'short_description': //div[contains(@class, 'shortdescription')]/text() ! string(.),
+        'forward_links': //div[@id="mw-content-text"]//a/@href ! string(.)
+    }
 """
 
 for item in wxpath.wxpath_async_blocking_iter(path_expr, max_depth=1):
@@ -176,6 +184,17 @@ path_expr = """
 # ...]
 ```
 
+## Progress Bar
+
+**wxpath** provides a progress bar (via `tqdm`) to track crawl progress. This is especially useful for long-running crawls.
+
+Enable by setting `engine.run(..., progress=True)`, or pass `progress=True` to any of the `wxpath_async*(...)` functions.
+
+```python
+items = wxpath.wxpath_async_blocking("...", progress=True)
+> 100%|██████████████████████████████████████████████████████████▎| 469/471 [00:05<00:00, 72.00it/s, depth=2, yielded=457]
+```
+
 
 ## CLI
 
@@ -218,7 +237,44 @@ Command line options:
 --concurrency-per-host <concurrency> Number of concurrent fetches per host
 --header               "Key:Value"   Add a custom header (e.g., 'Key:Value'). Can be used multiple times.
 --respect-robots       [true|false] (Default: True) Respects robots.txt
+--cache                [true|false] (Default: False) Persist crawl results to a local database
 ```
+
+
+## Persistence and Caching
+
+**wxpath** optionally persists crawl results to a local database. This is especially useful when you're crawling a large number of URLs, and you decide to pause the crawl, change extraction expressions, or otherwise need to restart the crawl. 
+
+**wxpath** supports two backends: sqlite and redis. SQLite is great for small-scale crawls, with a single worker (i.e., `engine.crawler.concurrency == 1`). Redis is great for large-scale crawls, with multiple workers. You will be encounter a warning if you `min(engine.crawler.concurrency, engine.crawler.per_host) > 1` when using the sqlite backend.
+
+To use, you must install the appropriate optional dependency:
+
+```bash
+pip install wxpath[cache-sqlite]
+pip install wxpath[cache-redis]
+```
+
+Once the dependency is installed, you must enable the cache:
+
+```python
+from wxpath.settings import SETTINGS
+
+# To enable caching; sqlite is the default
+SETTINGS.http.client.cache.enabled = True
+
+# For redis backend
+SETTINGS.http.client.cache.enabled = True
+SETTINGS.http.client.cache.backend = "redis"
+SETTINGS.http.client.cache.redis.address = "redis://localhost:6379/0"
+
+# Run wxpath as usual
+items = list(wxpath_async_blocking_iter('...', max_depth=1, engine=engine))
+```
+
+
+## Settings
+
+See [settings.py](src/wxpath/settings.py) for details of the settings.
 
 
 ## Hooks (Experimental)
@@ -269,6 +325,13 @@ Requires Python 3.10+.
 
 ```
 pip install wxpath
+```
+
+For persisted/cached, wxpath supports the following backends:
+
+```
+pip install wxpath[cache-sqlite]
+pip install wxpath[cache-redis]
 ```
 
 
@@ -326,7 +389,7 @@ items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 - Stay lightweight and composable
 - Asynchronous support for high-performance crawls
 
-### Guarantees/Goals
+### Goals
 
 - URLs are deduplicated on a best-effort, per-crawl basis.
 - Crawls are intended to terminate once the frontier is exhausted or `max_depth` is reached.
@@ -337,7 +400,6 @@ items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 
 The following features are not yet supported:
 
-- Persistent scheduling or crawl resumption
 - Automatic proxy rotation
 - Browser-based rendering (JavaScript execution)
 - Strict result ordering
@@ -359,6 +421,13 @@ If you want help building or operating crawlers/data feeds with wxpath (extracti
 ### Donate
 
 If you like wxpath and want to support its development, please consider [donating](https://www.paypal.com/donate/?business=WDNDK6J6PJEXY&no_recurring=0&item_name=Thanks+for+using+wxpath%21+Donations+fund+development%2C+docs%2C+and+bug+fixes.+If+wxpath+saved+you+time%2C+a+small+contribution+helps%21&currency_code=USD).
+
+
+## Versioning
+
+**wxpath** follows [semver](https://semver.org): `<MAJOR>.<MINOR>.<PATCH>`.
+
+However, pre-1.0.0 follows `0.<MAJOR>.<MINOR|PATCH>`.
 
 ## License
 

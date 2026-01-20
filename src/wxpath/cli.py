@@ -6,6 +6,7 @@ from wxpath.core import parser as wxpath_parser
 from wxpath.core.runtime.engine import WXPathEngine, wxpath_async_blocking_iter
 from wxpath.hooks import builtin, registry
 from wxpath.http.client.crawler import Crawler
+from wxpath.settings import SETTINGS
 from wxpath.util.serialize import simplify
 
 
@@ -15,9 +16,11 @@ def main():
     arg_parser.add_argument("expression", help="The wxpath expression")
     arg_parser.add_argument("--depth", type=int, default=1, help="Recursion depth")
     # debug
-    arg_parser.add_argument("--debug", action="store_true", help="Debug mode")
+    arg_parser.add_argument("--debug", action="store_true", 
+                            help="Debug mode. Provides verbose runtime output and information")
     # verbose
-    arg_parser.add_argument("--verbose", action="store_true", help="Verbose mode")
+    arg_parser.add_argument("--verbose", action="store_true", 
+                            help="Verbose mode. Prints CLI level information")
     
     arg_parser.add_argument(
         "--concurrency", 
@@ -44,16 +47,26 @@ def main():
         help="Respect robots.txt",
         default=True
     )
+    arg_parser.add_argument(
+        "--cache",
+        action="store_true",
+        help="Use cache",
+        default=False
+    )
+    arg_parser.add_argument(
+        "--cache-backend",
+        type=str,
+        help="Cache backend. Possible values: redis, sqlite",
+        default="sqlite"
+    )
+    arg_parser.add_argument(
+        "--cache-db-path-or-url",
+        type=str,
+        help="Path to cache database",
+        default="cache.db"
+    )
 
     args = arg_parser.parse_args()
-
-    if args.verbose:
-        segments = wxpath_parser.parse(args.expression)
-        print("parsed expression:\n\nSegments([")
-        for s in segments:
-            print(f"\t{s},")
-        print("])")
-        print()
 
     if args.debug:
         from wxpath import configure_logging
@@ -72,6 +85,29 @@ def main():
         print(f"Using custom headers: {custom_headers}")
         print()
 
+    if args.cache:
+        SETTINGS.http.client.cache.enabled = True
+        if args.cache_backend == "redis":
+            SETTINGS.http.client.cache.backend = "redis"
+            SETTINGS.http.client.cache.redis.address = args.cache_db_path_or_url
+        elif args.cache_backend == "sqlite":
+            SETTINGS.http.client.cache.backend = "sqlite"
+            SETTINGS.http.client.cache.sqlite.cache_name = args.cache_db_path_or_url
+
+    if args.verbose:
+        print(f"Using concurrency: {args.concurrency}")
+        print(f"Using concurrency per host: {args.concurrency_per_host}")
+        print(f"Using respect robots: {args.respect_robots}")
+        print(f"Using cache: {args.cache}")
+
+        segments = wxpath_parser.parse(args.expression)
+        print("parsed expression:\n\nSegments([")
+        for s in segments:
+            print(f"\t{s},")
+        print("])")
+        print()
+        print()
+
     crawler = Crawler(
         concurrency=args.concurrency,
         per_host=args.concurrency_per_host,
@@ -81,11 +117,20 @@ def main():
     engine = WXPathEngine(crawler=crawler)
 
     try:
-        for r in wxpath_async_blocking_iter(args.expression, args.depth, engine):
+        for r in wxpath_async_blocking_iter(
+            path_expr=args.expression, 
+            max_depth=args.depth, 
+            engine=engine):
             clean = simplify(r)
             print(json.dumps(clean, ensure_ascii=False), flush=True)
     except BrokenPipeError:
-        sys.exit(0)
+        if args.verbose:
+            print("Pipe broken.")
+
+    if args.verbose:
+        print("Done. Printing crawl stats")
+        print(crawler._stats)
+    sys.exit(0)
 
 
 if __name__ == "__main__":
