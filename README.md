@@ -20,6 +20,8 @@ NOTE: This project is in early development. Core concepts are stable, but the AP
 - [Output types](#output-types)
 - [XPath 3.1](#xpath-31-by-default)
 - [CLI](#cli)
+- [Persistence and Caching](#persistence-and-caching)
+- [Settings](#settings)
 - [Hooks (Experimental)](#hooks-experimental)
 - [Install](#install)
 - [More Examples](EXAMPLES.md)
@@ -218,7 +220,33 @@ Command line options:
 --concurrency-per-host <concurrency> Number of concurrent fetches per host
 --header               "Key:Value"   Add a custom header (e.g., 'Key:Value'). Can be used multiple times.
 --respect-robots       [true|false] (Default: True) Respects robots.txt
+--cache                [true|false] (Default: False) Persist crawl results to a local database
 ```
+
+
+## Persistence and Caching
+
+**wxpath** optionally persists crawl results to a local database. This is especially useful when you're crawling a large number of URLs, and you decide to pause the crawl, change extraction expressions, or otherwise need to restart the crawl. To use, you must install the `cache-sqlite` optional dependency:
+
+```bash
+pip install wxpath[cache-sqlite]
+```
+
+Once the dependency is installed, you must enable the cache:
+
+```python
+import wxpath
+
+wxpath.settings.SETTINGS.http.client.cache.enabled = True
+
+# Run wxpath as usual
+items = list(wxpath_async_blocking_iter('...', max_depth=1, engine=engine))
+```
+
+
+## Settings
+
+See [settings.py](src/wxpath/settings.py) for details of the settings.
 
 
 ## Hooks (Experimental)
@@ -271,6 +299,14 @@ Requires Python 3.10+.
 pip install wxpath
 ```
 
+For persisted/cached, wxpath supports the following backends:
+
+```
+pip install wxpath[cache-sqlite]
+pip install wxpath[cache-redis]
+```
+
+sqlite is great for small-scale crawls, with a single worker (i.e., `engine.crawler.concurrency == 1`). Redis is great for large-scale crawls, with multiple workers. You will be encounter a warning if you set `engine.crawler.concurrency > 1` when using the sqlite backend.
 
 ## More Examples
 
@@ -326,7 +362,7 @@ items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 - Stay lightweight and composable
 - Asynchronous support for high-performance crawls
 
-### Guarantees/Goals
+### Goals
 
 - URLs are deduplicated on a best-effort, per-crawl basis.
 - Crawls are intended to terminate once the frontier is exhausted or `max_depth` is reached.
@@ -337,7 +373,6 @@ items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 
 The following features are not yet supported:
 
-- Persistent scheduling or crawl resumption
 - Automatic proxy rotation
 - Browser-based rendering (JavaScript execution)
 - Strict result ordering

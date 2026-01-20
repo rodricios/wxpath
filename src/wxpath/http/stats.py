@@ -16,6 +16,7 @@ class CrawlerStats:
     requests_enqueued: int = 0
     requests_started: int = 0
     requests_completed: int = 0
+    requests_cache_hit: int = 0
 
     # ---- Concurrency ----
     in_flight_global: int = 0
@@ -57,6 +58,9 @@ def build_trace_config(stats: CrawlerStats) -> TraceConfig:
         context._start_time = time.monotonic()
 
     async def on_request_end(session, context, params):
+        """
+        Update stats on request completion.
+        """
         host = params.url.host
         stats.in_flight_global -= 1
         stats.in_flight_per_host[host] -= 1
@@ -82,6 +86,8 @@ def build_trace_config(stats: CrawlerStats) -> TraceConfig:
             if not hasattr(stats, "bytes_received"):
                 stats.bytes_received = 0
             stats.bytes_received += content_length
+        
+        stats.requests_completed += 1
 
     async def on_request_exception(session, context, params):
         host = params.url.host

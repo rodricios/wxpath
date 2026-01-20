@@ -11,6 +11,7 @@ from wxpath.http.client.request import Request
 
 class FakeResponse:
     def __init__(self, status: int, body: bytes):
+        self.url = ""
         self.status = status
         self._body = body
         self.headers = {}
