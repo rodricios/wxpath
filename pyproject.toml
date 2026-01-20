@@ -21,6 +21,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+cache = ["aiohttp-client-cache>=0.14.0"]
+cache-sqlite   = ["aiohttp-client-cache[sqlite]"]
+cache-redis    = ["aiohttp-client-cache[redis]"]
+
 test = ["pytest>=7.0", "pytest-asyncio>=0.23"]
 dev = ["ruff"]
 

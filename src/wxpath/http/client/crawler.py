@@ -1,3 +1,10 @@
+import aiohttp
+
+try:
+    from aiohttp_client_cache import CachedSession, SQLiteBackend
+except ImportError:
+    CachedSession = None
+
 import asyncio
 import time
 import urllib.parse
@@ -5,21 +12,52 @@ from collections import defaultdict
 from socket import gaierror
 from typing import AsyncIterator
 
-import aiohttp
-
+from wxpath.http.client.cache import get_cache_backend
 from wxpath.http.client.request import Request
 from wxpath.http.client.response import Response
 from wxpath.http.policy.retry import RetryPolicy
 from wxpath.http.policy.robots import RobotsTxtPolicy
 from wxpath.http.policy.throttler import AbstractThrottler, AutoThrottler
 from wxpath.http.stats import CrawlerStats, build_trace_config
+from wxpath.settings import SETTINGS
 from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
 
-HEADERS = {"User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" 
-                   "AppleWebKit/537.36 (KHTML, like Gecko) "
-                   "Chrome/142.0.0.0 Safari/537.36")}
+CACHE_SETTINGS = SETTINGS.http.client.cache
+CRAWLER_SETTINGS = SETTINGS.http.client.crawler
+
+def get_async_session(
+        headers: dict | None = None,
+        timeout: aiohttp.ClientTimeout | None = None,
+        connector: aiohttp.TCPConnector | None = None,
+        trace_config: aiohttp.TraceConfig | None = None
+) -> aiohttp.ClientSession:
+    """
+    Create and return a new aiohttp session. If aiohttp-client-cache is available
+    and enabled, return a new CachedSession bound to the configured SQLite backend.
+    The caller is responsible for closing the session.
+    """
+
+    if timeout is None:
+        timeout = aiohttp.ClientTimeout(total=CRAWLER_SETTINGS.timeout)
+
+    if CACHE_SETTINGS.enabled and CachedSession and SQLiteBackend:
+        log.info("using aiohttp-client-cache")
+        return CachedSession(
+            cache=get_cache_backend(),
+            headers=headers,
+            timeout=timeout,
+            connector=connector,
+            trace_configs=[trace_config] if trace_config is not None else None
+        )
+
+    return aiohttp.ClientSession(
+        headers=headers, 
+        timeout=timeout, 
+        connector=connector, 
+        trace_configs=[trace_config] if trace_config is not None else None
+    )
 
 
 class Crawler:
@@ -27,33 +65,55 @@ class Crawler:
 
     def __init__(
         self,
-        concurrency: int = 16,
-        per_host: int = 8,
-        timeout: int = 15,
+        concurrency: int = None,
+        per_host: int = None,
+        timeout: int = None,
         *,
         headers: dict | None = None,
         proxies: dict | None = None,
         retry_policy: RetryPolicy | None = None,
         throttler: AbstractThrottler | None = None,
         auto_throttle_target_concurrency: float = None,
-        auto_throttle_start_delay: float = 0.25,
-        auto_throttle_max_delay: float = 10.0,
+        auto_throttle_start_delay: float = None,
+        auto_throttle_max_delay: float = None,
         respect_robots: bool = True,
     ):
-        self.concurrency = concurrency
-        self._timeout = aiohttp.ClientTimeout(total=timeout)
-        self._headers   = HEADERS | (headers or {}) # merge headers
-        self._proxies = proxies if (isinstance(proxies, defaultdict) or proxies) else {}
-        self.respect_robots = respect_robots
+        cfg = CRAWLER_SETTINGS
 
+        self.concurrency = concurrency if concurrency is not None else cfg.concurrency
+        self.per_host = per_host if per_host is not None else cfg.per_host
+
+        timeout = timeout if timeout is not None else cfg.timeout
+        self._timeout = aiohttp.ClientTimeout(total=timeout)
+
+        self._headers = cfg.headers | (headers or {}) # merge headers
+        
+        _proxies = proxies if proxies is not None else cfg.proxies
+        self._proxies = _proxies if (isinstance(_proxies, defaultdict) or _proxies) else {}
+        
         self.retry_policy = retry_policy or RetryPolicy()
+
+        # auto-throttle defaults
+        auto_throttle_target_concurrency = auto_throttle_target_concurrency \
+            if auto_throttle_target_concurrency is not None \
+            else cfg.auto_throttle_target_concurrency
+        
+        auto_throttle_start_delay = auto_throttle_start_delay \
+            if auto_throttle_start_delay is not None \
+            else cfg.auto_throttle_start_delay
+
+        auto_throttle_max_delay = auto_throttle_max_delay \
+            if auto_throttle_max_delay is not None \
+            else cfg.auto_throttle_max_delay
+
         self.throttler = throttler or AutoThrottler(
-            target_concurrency=auto_throttle_target_concurrency or concurrency/4.0,
+            target_concurrency=auto_throttle_target_concurrency or self.concurrency/4.0,
             start_delay=auto_throttle_start_delay,
             max_delay=auto_throttle_max_delay,
         )
-        self._sem_global = asyncio.Semaphore(concurrency)
-        self._sem_host = defaultdict(lambda: asyncio.Semaphore(per_host))
+
+        self._sem_global = asyncio.Semaphore(self.concurrency)
+        self._sem_host = defaultdict(lambda: asyncio.Semaphore(self.per_host))
 
         self._pending: asyncio.Queue[Request] = asyncio.Queue()
         self._results: asyncio.Queue[Response] = asyncio.Queue()
@@ -62,6 +122,8 @@ class Crawler:
         self._workers: list[asyncio.Task] = []
         self._closed = False
         self._stats = CrawlerStats()
+
+        self.respect_robots = respect_robots if respect_robots is not None else cfg.respect_robots
         self._robots_policy: RobotsTxtPolicy | None = None
 
     def build_session(self) -> aiohttp.ClientSession:
@@ -69,11 +131,11 @@ class Crawler:
         trace_config = build_trace_config(self._stats)
         # Need to build the connector as late as possible as it requires the loop
         connector = aiohttp.TCPConnector(limit=self.concurrency*2, ttl_dns_cache=300)
-        return aiohttp.ClientSession(
-            headers=self._headers, 
-            timeout=self._timeout, 
-            connector=connector, 
-            trace_configs=[trace_config]
+        return get_async_session(
+            headers=self._headers,
+            timeout=self._timeout,
+            connector=connector,
+            trace_config=trace_config
         )
 
     async def __aenter__(self) -> "Crawler":
@@ -82,6 +144,7 @@ class Crawler:
             # self._session = aiohttp.ClientSession(timeout=self._timeout)
             self._session = self.build_session()
 
+        # Note: Set robots policy after session is created
         if self.respect_robots:
             self._robots_policy = RobotsTxtPolicy(self._session)
 
@@ -184,12 +247,22 @@ class Crawler:
 
             start = time.monotonic()
             try:
+                log.info("fetching", extra={"url": req.url})
                 async with self._session.get(
                     req.url,
                     headers=self._headers | req.headers,
                     proxy=self._proxy_for(req.url),
                     timeout=req.timeout or self._timeout,
                 ) as resp:
+                    from_cache = getattr(resp, "from_cache", False)
+                    if from_cache:
+                        # NOTE: This is a bit of a hack, but it works. aiohttp-client-cache does not
+                        #  interface with TraceConfigs on cache hit, so we have to do it here.
+                        self._stats.requests_cache_hit += 1
+                        log.info("[CACHE HIT]", extra={"req.url": req.url, "resp.url": resp.url})
+                    else:
+                        log.info("[CACHE MISS]", extra={"req.url": req.url, "resp.url": resp.url})
+
                     body = await resp.read()
 
                     latency = time.monotonic() - start
