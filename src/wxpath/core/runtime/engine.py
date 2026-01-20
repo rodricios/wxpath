@@ -5,6 +5,7 @@ from collections import deque
 from typing import Any, AsyncGenerator, Iterator
 
 from lxml.html import HtmlElement
+from tqdm import tqdm
 
 from wxpath import patches  # noqa: F401
 from wxpath.core import parser
@@ -157,7 +158,12 @@ class WXPathEngine(HookedEngineBase):
         if allow_redirects:
             self.allowed_response_codes |= {301, 302, 303, 307, 308}
 
-    async def run(self, expression: str, max_depth: int) -> AsyncGenerator[Any, None]:
+    async def run(
+            self, 
+            expression: str, 
+            max_depth: int, 
+            progress: bool = False
+        ) -> AsyncGenerator[Any, None]:
         """Execute a wxpath expression concurrently and yield results.
 
         Builds and drives a BFS-like crawl pipeline that honors robots rules,
@@ -166,6 +172,7 @@ class WXPathEngine(HookedEngineBase):
         Args:
             expression: WXPath expression string to evaluate.
             max_depth: Maximum crawl depth to follow for url hops.
+            progress: Whether to display a progress bar.
 
         Yields:
             Extracted values produced by the expression (HTML elements or
@@ -181,6 +188,12 @@ class WXPathEngine(HookedEngineBase):
             # NOTE: consider adopting state machine pattern for determining 
             #       the current state of the engine.
             return queue.empty() and pending_tasks <= 0
+
+        total_yielded = 0
+        if progress:
+            pbar = tqdm(total=0)
+        else:
+            pbar = None
 
         async with self.crawler as crawler:
             async def submitter():
@@ -219,12 +232,17 @@ class WXPathEngine(HookedEngineBase):
                 depth=seed_task.depth,
                 max_depth=max_depth,
                 queue=queue,
+                pbar=pbar,
             ):
                 yield await self.post_extract_hooks(output)
 
             # While looping asynchronous generators, you MUST make sure 
             # to check terminal conditions before re-iteration.
             async for resp in crawler:
+                if pbar is not None:
+                    pbar.update(1)
+                    pbar.refresh()
+
                 task = inflight.pop(resp.request.url, None)
                 pending_tasks -= 1
 
@@ -273,10 +291,18 @@ class WXPathEngine(HookedEngineBase):
                         depth=task.depth,
                         max_depth=max_depth,
                         queue=queue,
-                    ):
+                        pbar=pbar
+                    ):  
+                        total_yielded += 1
+                        if pbar is not None:
+                            pbar.set_postfix(yielded=total_yielded, depth=task.depth,)
 
                         yield await self.post_extract_hooks(output)
                 else:
+                    total_yielded += 1
+                    if pbar is not None:
+                        pbar.set_postfix(yielded=total_yielded, depth=task.depth,)
+
                     yield await self.post_extract_hooks(elem)
 
                 # Termination condition
@@ -287,6 +313,9 @@ class WXPathEngine(HookedEngineBase):
             with contextlib.suppress(asyncio.CancelledError):
                 await submit_task
 
+        if pbar is not None:
+            pbar.close()
+
     async def _process_pipeline(
         self,
         task: CrawlTask,
@@ -294,6 +323,7 @@ class WXPathEngine(HookedEngineBase):
         depth: int,
         max_depth: int,
         queue: asyncio.Queue[CrawlTask],
+        pbar: tqdm = None
     ) -> AsyncGenerator[Any, None]:
         """Process a queue of intents for a single crawl branch.
 
@@ -331,9 +361,10 @@ class WXPathEngine(HookedEngineBase):
                 elif isinstance(intent, CrawlIntent):
                     next_depth = task.depth + 1
                     # if intent.url not in self.seen_urls and next_depth <= max_depth:
-                    if next_depth <= max_depth:
+                    if next_depth <= max_depth and intent.url not in self.seen_urls:
                         # self.seen_urls.add(intent.url)
                         log.debug(f"Depth: {next_depth}; Enqueuing {intent.url}")
+                        
                         queue.put_nowait(
                             CrawlTask(
                                 elem=None,
@@ -343,6 +374,9 @@ class WXPathEngine(HookedEngineBase):
                                 backlink=task.url,
                             )
                         )
+                        if pbar is not None:
+                            pbar.total += 1
+                            pbar.refresh()
 
                 elif isinstance(intent, (ExtractIntent, ProcessIntent, InfiniteCrawlIntent)):
                     # immediately traverse the extraction
@@ -351,18 +385,20 @@ class WXPathEngine(HookedEngineBase):
                     mini_queue.append((elem, next_segments))
 
 
-def wxpath_async(path_expr: str, 
-                 max_depth: int, 
+def wxpath_async(path_expr: str,
+                 max_depth: int,
+                 progress: bool = False,
                  engine: WXPathEngine | None = None) -> AsyncGenerator[Any, None]:
     if engine is None:
         engine = WXPathEngine()
-    return engine.run(path_expr, max_depth)
+    return engine.run(path_expr, max_depth, progress=progress)
 
 
 ##### ASYNC IN SYNC #####
 def wxpath_async_blocking_iter(
     path_expr: str,
     max_depth: int = 1,
+    progress: bool = False,
     engine: WXPathEngine | None = None,
 ) -> Iterator[Any]:
     """Evaluate a wxpath expression using concurrent breadth-first traversal.
@@ -383,7 +419,7 @@ def wxpath_async_blocking_iter(
     """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    agen = wxpath_async(path_expr, max_depth=max_depth, engine=engine)
+    agen = wxpath_async(path_expr, max_depth=max_depth, progress=progress, engine=engine)
 
     try:
         while True:
@@ -399,8 +435,10 @@ def wxpath_async_blocking_iter(
 def wxpath_async_blocking(
     path_expr: str,
     max_depth: int = 1,
+    progress: bool = False,
     engine: WXPathEngine | None = None,
 ) -> list[Any]:
-    return list(
-        wxpath_async_blocking_iter(path_expr, max_depth=max_depth, engine=engine)
-    )
+    return list(wxpath_async_blocking_iter(path_expr, 
+                                           max_depth=max_depth, 
+                                           progress=progress, 
+                                           engine=engine))
