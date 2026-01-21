@@ -4,9 +4,42 @@
 
 **wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, wxpath lets you describe what to follow and what to extract in a single expression. **wxpath** executes that expression concurrently, breadth-first-*ish*, and streams results as they are discovered.
 
-By introducing the `url(...)` operator and the `///` syntax, wxpath's engine is able to perform deep (or paginated) web crawling and extraction.
+This expression fetches a page, extracts links, and streams them concurrently - no crawl loop required:
 
-NOTE: This project is in early development. Core concepts are stable, but the API and features may change. Please report issues - in particular, deadlocked crawls or unexpected behavior - and any features you'd like to see (no guarantee they'll be implemented).
+```python
+import wxpath
+
+expr = "url('https://example.com')//a/@href"
+
+for link in wxpath.wxpath_async_blocking_iter(expr):
+    print(link)
+```
+
+
+By introducing the `url(...)` operator and the `///` syntax, wxpath's engine is able to perform deep (or paginated) web crawling and extraction:
+
+```python
+import wxpath
+
+path_expr = """
+url('https://quotes.toscrape.com')
+  ///url(//a/@href)
+    //a/@href
+"""
+
+for item in wxpath.wxpath_async_blocking_iter(path_expr, max_depth=1):
+    print(item)
+```
+
+
+## Why wxpath?
+
+Most web scrapers force you to write crawl control flow first, and extraction second.
+
+**wxpath** inverts that:
+- **You describe traversal declaratively**
+- **Extraction is expressed inline**
+- **The engine handles scheduling, concurrency, and deduplication**
 
 
 ## Contents
@@ -47,7 +80,11 @@ CRAWLER_SETTINGS.headers = {'User-Agent': 'my-app/0.4.0 (contact: you@example.co
 # Crawl, extract fields, build a knowledge graph
 path_expr = """
 url('https://en.wikipedia.org/wiki/Expression_language')
-  ///url(//main//a/@href[starts-with(., '/wiki/') and not(contains(., ':'))])
+  ///url(
+        //main//a/@href[
+            starts-with(., '/wiki/') and not(contains(., ':'))
+        ]
+    )
     /map{
         'title': (//span[contains(@class, "mw-page-title-main")]/text())[1] ! string(.),
         'url': string(base-uri(.)),
@@ -58,15 +95,6 @@ url('https://en.wikipedia.org/wiki/Expression_language')
 
 for item in wxpath.wxpath_async_blocking_iter(path_expr, max_depth=1):
     print(item)
-```
-
-Output:
-
-```python
-map{'title': 'Computer language', 'url': 'https://en.wikipedia.org/wiki/Computer_language', 'short_description': 'Formal language for communicating with a computer', 'forward_links': ['/wiki/Formal_language', '/wiki/Communication', ...]}
-map{'title': 'Advanced Boolean Expression Language', 'url': 'https://en.wikipedia.org/wiki/Advanced_Boolean_Expression_Language', 'short_description': 'Hardware description language and software', 'forward_links': ['/wiki/File:ABEL_HDL_example_SN74162.png', '/wiki/Hardware_description_language', ...]}
-map{'title': 'Machine-readable medium and data', 'url': 'https://en.wikipedia.org/wiki/Machine_readable', 'short_description': 'Medium capable of storing data in a format readable by a machine', 'forward_links': ['/wiki/File:EAN-13-ISBN-13.svg', '/wiki/ISBN', ...]}
-...
 ```
 
 **Note:** Some sites (including Wikipedia) may block requests without proper headers.  
@@ -407,13 +435,15 @@ The following features are not yet supported:
 
 ## WARNINGS!!!
 
+This project is in early development. Core concepts are stable, but the API and features may change. Please report issues - in particular, deadlocked crawls or unexpected behavior - and any features you'd like to see (no guarantee they'll be implemented).
+
 - Be respectful when crawling websites. A scrapy-inspired throttler is enabled by default.
 - Deep crawls (`///`) require user discipline to avoid unbounded expansion (traversal explosion).
 - Deadlocks and hangs are possible in certain situations (e.g., all tasks waiting on blocked requests). Please report issues if you encounter such behavior.
 - Consider using timeouts, `max_depth`, and XPath predicates and filters to limit crawl scope.
 
 
-## Commercial support / consulting
+## Commercial support/consulting
 
 If you want help building or operating crawlers/data feeds with wxpath (extraction, scheduling, monitoring, breakage fixes) or other web-scraping needs, please contact me at: rodrigopala91@gmail.com.
 
