@@ -9,7 +9,7 @@ class Request:
     url: str
     method: str = "GET"
     headers: dict[str, str] = field(default_factory=dict)
-    timeout: float = 15.0
+    timeout: float | None = None
 
     retries: int = 0
     max_retries: int | None = None

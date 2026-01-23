@@ -1,7 +1,7 @@
 import aiohttp
 
 try:
-    from aiohttp_client_cache import CachedSession, SQLiteBackend
+    from aiohttp_client_cache import CachedSession
 except ImportError:
     CachedSession = None
 
@@ -42,7 +42,7 @@ def get_async_session(
     if timeout is None:
         timeout = aiohttp.ClientTimeout(total=CRAWLER_SETTINGS.timeout)
 
-    if CACHE_SETTINGS.enabled and CachedSession and SQLiteBackend:
+    if CACHE_SETTINGS.enabled and CachedSession:
         log.info("using aiohttp-client-cache")
         return CachedSession(
             cache=get_cache_backend(),

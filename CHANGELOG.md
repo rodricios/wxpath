@@ -15,3 +15,7 @@
 - Settings module
 - Persistence and caching
 - Progress bar
+
+## 0.4.1
+- Add `yield_errors` runtime option - return error dicts for failed requests
+- Fix cache backend: Redis backend no longer requires SQLite backend
