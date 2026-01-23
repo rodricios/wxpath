@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from tests.utils import MockCrawler
+from tests.utils import MockCrawler, MockCrawlerWithErrors
 from wxpath.core.runtime import engine
 from wxpath.core.runtime.engine import WXPathEngine
 from wxpath.http.client.request import Request
@@ -935,6 +935,283 @@ async def test_engine_deduplicates_urls(monkeypatch):
     urls = [r.base_url for r in results]
     # Only one instance of the duplicate URL should be returned
     assert urls.count("http://root/a.html") == 1
+
+
+# -----------------------------
+# Test: yield_errors option
+# -----------------------------
+@pytest.mark.asyncio
+async def test_yield_errors_network_error(monkeypatch):
+    """Test that network errors are yielded when yield_errors=True."""
+    target_url = "http://error.test/"
+    error = ConnectionError("Connection refused")
+    
+    responses = {}
+    error_responses = {target_url: error}
+    
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawlerWithErrors(
+            responses_by_url=responses,
+            error_responses=error_responses
+        ),
+    )
+
+    eng = WXPathEngine()
+    results = await _collect_async(
+        eng.run(f"url('{target_url}')", max_depth=0, yield_errors=True)
+    )
+
+    assert len(results) == 1
+    assert isinstance(results[0], dict)
+    assert results[0]["__type__"] == "error"
+    assert results[0]["url"] == target_url
+    assert results[0]["reason"] == "network_error"
+    assert "exception" in results[0]
+    assert str(error) in results[0]["exception"]
+
+
+@pytest.mark.asyncio
+async def test_yield_errors_network_error_disabled(monkeypatch):
+    """Test that network errors are NOT yielded when yield_errors=False."""
+    target_url = "http://error.test/"
+    error = ConnectionError("Connection refused")
+    
+    responses = {}
+    error_responses = {target_url: error}
+    
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawlerWithErrors(
+            responses_by_url=responses,
+            error_responses=error_responses
+        ),
+    )
+
+    eng = WXPathEngine()
+    results = await _collect_async(
+        eng.run(f"url('{target_url}')", max_depth=0, yield_errors=False)
+    )
+
+    # Should yield nothing when errors are not yielded
+    assert len(results) == 0
+
+
+@pytest.mark.asyncio
+async def test_yield_errors_bad_status(monkeypatch):
+    """Test that bad status codes are yielded when yield_errors=True."""
+    target_url = "http://badstatus.test/"
+    
+    responses = {
+        target_url: Response(
+            request=Request(target_url),
+            status=404,
+            body=b"<html><body>Not Found</body></html>",
+            headers={},
+        )
+    }
+    
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawlerWithErrors(responses_by_url=responses),
+    )
+
+    eng = WXPathEngine(allowed_response_codes={200})
+    results = await _collect_async(
+        eng.run(f"url('{target_url}')", max_depth=0, yield_errors=True)
+    )
+
+    assert len(results) == 1
+    assert isinstance(results[0], dict)
+    assert results[0]["__type__"] == "error"
+    assert results[0]["url"] == target_url
+    assert results[0]["reason"] == "bad_status"
+    assert results[0]["status"] == 404
+    assert "body" in results[0]
+
+
+@pytest.mark.asyncio
+async def test_yield_errors_bad_status_empty_body(monkeypatch):
+    """Test that empty body responses are yielded when yield_errors=True."""
+    target_url = "http://emptybody.test/"
+    
+    responses = {
+        target_url: Response(
+            request=Request(target_url),
+            status=200,
+            body=b"",  # Empty body
+            headers={},
+        )
+    }
+    
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawlerWithErrors(responses_by_url=responses),
+    )
+
+    eng = WXPathEngine()
+    results = await _collect_async(
+        eng.run(f"url('{target_url}')", max_depth=0, yield_errors=True)
+    )
+
+    assert len(results) == 1
+    assert isinstance(results[0], dict)
+    assert results[0]["__type__"] == "error"
+    assert results[0]["url"] == target_url
+    assert results[0]["reason"] == "bad_status"
+    assert results[0]["status"] == 200
+
+
+@pytest.mark.asyncio
+async def test_yield_errors_unexpected_response(monkeypatch):
+    """Test that unexpected responses are yielded when yield_errors=True."""
+    expected_url = "http://expected.test/"
+    unexpected_url = "http://unexpected.test/"
+    
+    # Normal response for expected URL
+    responses = {
+        expected_url: Response(
+            request=Request(expected_url),
+            status=200,
+            body=b"<html><body>OK</body></html>",
+            headers={},
+        )
+    }
+    
+    # Unexpected response (URL not in inflight dict - never submitted)
+    # This will be yielded by the crawler before the expected response
+    unexpected_responses = [
+        Response(
+            request=Request(unexpected_url),
+            status=200,
+            body=b"<html><body>Unexpected</body></html>",
+            headers={},
+        )
+    ]
+    
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawlerWithErrors(
+            responses_by_url=responses,
+            unexpected_responses=unexpected_responses
+        ),
+    )
+
+    eng = WXPathEngine()
+    # Submit a request for expected_url, but crawler will first yield unexpected response
+    results = await _collect_async(
+        eng.run(f"url('{expected_url}')", max_depth=0, yield_errors=True)
+    )
+
+    # Should get both the unexpected error and the normal result
+    assert len(results) >= 1
+    
+    # Find the unexpected_response error
+    error_results = [r for r in results if isinstance(r, dict) and r.get("__type__") == "error"]
+    unexpected_errors = [
+        r for r in error_results 
+        if r.get("reason") == "unexpected_response"
+    ]
+    assert len(unexpected_errors) >= 1
+    
+    error_result = unexpected_errors[0]
+    assert error_result["url"] == unexpected_url
+    assert error_result["reason"] == "unexpected_response"
+    assert "body" in error_result
+
+
+@pytest.mark.asyncio
+async def test_yield_errors_mixed_success_and_errors(monkeypatch):
+    """Test that both successful results and errors are yielded when yield_errors=True."""
+    root_url = "http://root.test/"
+    success_url = "http://success.test/"
+    error_url = "http://error.test/"
+    
+    responses = {
+        root_url: Response(
+            request=Request(root_url),
+            status=200,
+            body=f"""<html><body><a href="{success_url}">Success</a><a href="{error_url}">Error</a>
+            </body></html>""".encode(),
+            headers={},
+        ),
+        success_url: Response(
+            request=Request(success_url),
+            status=200,
+            body=b"<html><body>Success</body></html>",
+            headers={},
+        )
+    }
+    
+    error_responses = {
+        error_url: ConnectionError("Network error")
+    }
+    
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawlerWithErrors(
+            responses_by_url=responses,
+            error_responses=error_responses
+        ),
+    )
+
+    eng = WXPathEngine()
+    
+    # Create expression that will crawl root, then follow links to both success and error URLs
+    expr = f"url('{root_url}')//url(//a/@href)"
+    results = await _collect_async(
+        eng.run(expr, max_depth=1, yield_errors=True)
+    )
+
+    # Should have at least one success result and one error
+    assert len(results) >= 2
+    
+    # Check for success result (HTML element)
+    success_results = [r for r in results if not isinstance(r, dict)]
+    assert len(success_results) >= 1
+    
+    # Check for error result
+    error_results = [r for r in results if isinstance(r, dict) and r.get("__type__") == "error"]
+    assert len(error_results) >= 1
+    
+    # Verify error details
+    error_result = error_results[0]
+    assert error_result["reason"] == "network_error"
+    assert error_result["url"] == error_url
+
+
+@pytest.mark.asyncio
+async def test_yield_errors_default_false(monkeypatch):
+    """Test that yield_errors defaults to False (errors not yielded)."""
+    target_url = "http://error.test/"
+    error = ConnectionError("Connection refused")
+    
+    responses = {}
+    error_responses = {target_url: error}
+    
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawlerWithErrors(
+            responses_by_url=responses,
+            error_responses=error_responses
+        ),
+    )
+
+    eng = WXPathEngine()
+    # Don't pass yield_errors, should default to False
+    results = await _collect_async(
+        eng.run(f"url('{target_url}')", max_depth=0)
+    )
+
+    # Should yield nothing when errors are not yielded (default)
+    assert len(results) == 0
 
 
 # -----------------------------

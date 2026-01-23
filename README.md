@@ -63,7 +63,7 @@ Most web scrapers force you to write crawl control flow first, and extraction se
 - [Advanced: Engine & Crawler Configuration](#advanced-engine--crawler-configuration)
 - [Project Philosophy](#project-philosophy)
 - [Warnings](#warnings)
-- [Commercial support / consulting](#commercial-support--consulting)
+- [Commercial support/consulting](#commercial-supportconsulting)
 - [Versioning](#versioning)
 - [License](#license)
 
@@ -407,6 +407,17 @@ path_expr = "url('https://en.wikipedia.org/wiki/Expression_language')//url(//mai
 
 items = list(wxpath_async_blocking_iter(path_expr, max_depth=1, engine=engine))
 ```
+
+### Runtime API (`wxpath_async*`) options
+
+- `max_depth`: int = 1
+- `progress`: bool = False
+- `engine`: WXPathEngine | None = None
+- `yield_errors`: bool = False
+
+
+### Settings
+You can also use [settings.py](src/wxpath/settings.py) to enable caching, throttling, concurrency and more.
 
 
 ## Project Philosophy

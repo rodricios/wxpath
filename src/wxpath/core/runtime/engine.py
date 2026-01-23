@@ -162,7 +162,8 @@ class WXPathEngine(HookedEngineBase):
             self, 
             expression: str, 
             max_depth: int, 
-            progress: bool = False
+            progress: bool = False,
+            yield_errors: bool = False,
         ) -> AsyncGenerator[Any, None]:
         """Execute a wxpath expression concurrently and yield results.
 
@@ -248,12 +249,32 @@ class WXPathEngine(HookedEngineBase):
 
                 if task is None:
                     log.warning(f"Got unexpected response from {resp.request.url}")
+
+                    if yield_errors:
+                        yield {
+                            "__type__": "error",
+                            "url": resp.request.url,
+                            "reason": "unexpected_response",
+                            "status": resp.body,
+                            "body": resp.body
+                        }
+                        
                     if is_terminal():
                         break
                     continue
 
                 if resp.error:
                     log.warning(f"Got error from {resp.request.url}: {resp.error}")
+
+                    if yield_errors:
+                        yield {
+                            "__type__": "error",
+                            "url": resp.request.url,
+                            "reason": "network_error",
+                            "exception": str(resp.error),
+                            "status": resp.status,
+                            "body": resp.body
+                        }
                     if is_terminal():
                         break
                     continue
@@ -261,6 +282,16 @@ class WXPathEngine(HookedEngineBase):
                 # NOTE: Consider allowing redirects
                 if resp.status not in self.allowed_response_codes or not resp.body:
                     log.warning(f"Got non-200 response from {resp.request.url}")
+
+                    if yield_errors:
+                        yield {
+                            "__type__": "error",
+                            "url": resp.request.url,
+                            "reason": "bad_status",
+                            "status": resp.status,
+                            "body": resp.body
+                        }
+
                     if is_terminal():
                         break
                     continue
@@ -388,10 +419,12 @@ class WXPathEngine(HookedEngineBase):
 def wxpath_async(path_expr: str,
                  max_depth: int,
                  progress: bool = False,
-                 engine: WXPathEngine | None = None) -> AsyncGenerator[Any, None]:
+                 engine: WXPathEngine | None = None,
+                 yield_errors: bool = False
+                 ) -> AsyncGenerator[Any, None]:
     if engine is None:
         engine = WXPathEngine()
-    return engine.run(path_expr, max_depth, progress=progress)
+    return engine.run(path_expr, max_depth, progress=progress, yield_errors=yield_errors)
 
 
 ##### ASYNC IN SYNC #####
@@ -400,6 +433,7 @@ def wxpath_async_blocking_iter(
     max_depth: int = 1,
     progress: bool = False,
     engine: WXPathEngine | None = None,
+    yield_errors: bool = False
 ) -> Iterator[Any]:
     """Evaluate a wxpath expression using concurrent breadth-first traversal.
 
@@ -419,7 +453,8 @@ def wxpath_async_blocking_iter(
     """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    agen = wxpath_async(path_expr, max_depth=max_depth, progress=progress, engine=engine)
+    agen = wxpath_async(path_expr, max_depth=max_depth, progress=progress, 
+                        engine=engine, yield_errors=yield_errors)
 
     try:
         while True:
@@ -437,8 +472,11 @@ def wxpath_async_blocking(
     max_depth: int = 1,
     progress: bool = False,
     engine: WXPathEngine | None = None,
+    yield_errors: bool = False
 ) -> list[Any]:
     return list(wxpath_async_blocking_iter(path_expr, 
                                            max_depth=max_depth, 
                                            progress=progress, 
-                                           engine=engine))
+                                           engine=engine,
+                                           yield_errors=yield_errors,
+                                           ))
