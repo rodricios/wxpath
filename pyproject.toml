@@ -33,6 +33,7 @@ Changelog = "https://github.com/rodricios/wxpath/blob/main/CHANGELOG.md"
 cache = ["aiohttp-client-cache>=0.14.0"]
 cache-sqlite   = ["aiohttp-client-cache[sqlite]"]
 cache-redis    = ["aiohttp-client-cache[redis]"]
+playwright = ["playwright>=1.57.0,<2.0.0"]
 
 # langchain langchain-ollama langchain-chroma chromadb
 llm = ["langchain>=1.0.0", "langchain-core>=1.0.0", "langchain-ollama>=1.0.0", 
