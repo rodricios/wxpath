@@ -22,7 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install mkdocs mkdocs-material "mkdocstrings[python]"
+          pip install mkdocs mkdocs-material "mkdocstrings[python]" mkdocs-macros-plugin pyyaml
 
       - name: Build documentation
         run: mkdocs build --strict
