@@ -1,0 +1,27 @@
+
+/* Base typography */
+body {
+  /* font-family: 'Courier New', 'Courier', 'Monaco', 'Menlo', 'Consolas', monospace !important; */
+  /* font-family: "Lucida Console", "Andale Mono", "Courier New", monospace; */
+  font-family: "Verdana", "Tahoma", "Trebuchet MS", Arial, sans-serif;
+
+  font-size: 16px;
+  line-height: 1.7;
+  font-weight: 400;
+}
+
+nav.md-tabs {
+  font-family: "Lucida Console", "Andale Mono", "Courier New", monospace;
+
+  font-weight: 600;
+}
+
+/* Hide default logo icon */
+.md-header__button.md-logo {
+  display: none !important;
+}
+
+.md-header__title, h1, h2, h3 {
+  /* font-family: "Lucida Console", "Andale Mono", "Courier New", monospace; */
+  font-family: 'Courier New', 'Courier', 'Monaco', 'Menlo', 'Consolas', monospace !important;
+}

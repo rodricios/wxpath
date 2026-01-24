@@ -1,6 +1,7 @@
-# **wxpath** - declarative web crawling with XPath 
+# **wxpath** - declarative web graph traversal with XPath 
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/) [![Documentation Status](https://img.shields.io/badge/python-mkdocs-green.svg)](https://your-documentation-link.com)
+
 
 **wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, wxpath lets you describe what to follow and what to extract in a single expression. **wxpath** executes that expression concurrently, breadth-first-*ish*, and streams results as they are discovered.
 
@@ -9,14 +10,14 @@ This expression fetches a page, extracts links, and streams them concurrently - 
 ```python
 import wxpath
 
-expr = "url('https://example.com')//a/@href"
+expr = "url('https://quotes.toscrape.com')//a/@href"
 
 for link in wxpath.wxpath_async_blocking_iter(expr):
     print(link)
 ```
 
 
-By introducing the `url(...)` operator and the `///` syntax, wxpath's engine is able to perform deep (or paginated) web crawling and extraction:
+By introducing the `url(...)` operator and the `///` syntax, wxpath's engine is able to perform recursive (or paginated) web crawling and extraction:
 
 ```python
 import wxpath
@@ -36,11 +37,14 @@ for item in wxpath.wxpath_async_blocking_iter(path_expr, max_depth=1):
 
 Most web scrapers force you to write crawl control flow first, and extraction second.
 
-**wxpath** inverts that:
+**wxpath** converges those two steps into one:
 - **You describe traversal declaratively**
 - **Extraction is expressed inline**
 - **The engine handles scheduling, concurrency, and deduplication**
 
+## Documentation (WIP)
+
+Documentation is now available [here](https://rodricios.github.io/wxpath/).
 
 ## Contents
 

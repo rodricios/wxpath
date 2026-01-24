@@ -61,6 +61,7 @@ class InfiniteCrawlIntent(ProcessIntent):
 
 @dataclass(slots=True)
 class ExtractIntent(ProcessIntent):
+    """TODO: May be redundant with ProcessIntent?"""
     pass
 
 

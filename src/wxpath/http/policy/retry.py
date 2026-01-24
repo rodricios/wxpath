@@ -19,13 +19,13 @@ class RetryPolicy:
 
         if request.max_retries is not None and request.retries >= request.max_retries:
             return False
-        
+
         if request.retries >= self.max_retries:
             return False
 
         if response is not None and response.status in self.retry_statuses:
             return True
-        
+
         if exception is not None:
             return True
 

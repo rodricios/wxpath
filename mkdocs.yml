@@ -1,0 +1,111 @@
+site_name: wxpath
+site_description: Declarative web crawling with XPath
+site_author: Rodrigo Palacios
+site_url: https://rodricios.github.io/wxpath/
+
+repo_name: wxpath
+repo_url: https://github.com/rodricios/wxpath
+
+theme:
+  name: material
+  font:
+    text: 'Courier New'
+    code: 'Courier New'
+  palette:
+    - scheme: default
+      primary: green
+      accent: green
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: green
+      accent: lime
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+dev_addr: 127.0.0.1:8000
+
+plugins:
+  - search
+  - macros:
+      module_name: docs/macros
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - User Guide:
+      - Language Design: guide/language-design.md
+      - CLI: guide/cli.md
+      - Configuration: guide/configuration.md
+      - Hooks: guide/hooks.md
+      - Caching: guide/caching.md
+  - API Reference:
+      - Overview: api/index.md
+      - Core:
+          - Overview: api/core/index.md
+          - Engine: api/core/engine.md
+          - Parser: api/core/parser.md
+          - Models: api/core/models.md
+          - Operations: api/core/ops.md
+          - DOM Utilities: api/core/dom.md
+      - HTTP:
+          - Overview: api/http/index.md
+          - Crawler: api/http/crawler.md
+          - Request: api/http/request.md
+          - Response: api/http/response.md
+          - Cache: api/http/cache.md
+          - Policy:
+              - Retry: api/http/policy/retry.md
+              - Robots: api/http/policy/robots.md
+              - Throttler: api/http/policy/throttler.md
+              - Backoff: api/http/policy/backoff.md
+          - Stats: api/http/stats.md
+      - Hooks:
+          - Overview: api/hooks/index.md
+          - Registry: api/hooks/registry.md
+          - Built-in Hooks: api/hooks/builtin.md
+      - Utilities:
+          - Logging: api/util/logging.md
+          - Serialize: api/util/serialize.md
+      - Settings: api/settings.md
+  - Examples: examples.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/rodricios/wxpath
+
+extra_css:
+  - assets/matrix-theme.css

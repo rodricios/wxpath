@@ -1,0 +1,15 @@
+# Template variables for documentation
+# Used by both mkdocs and README.md preprocessing
+
+github:
+  username: rodricios  # Replace with your actual GitHub username
+  repo: wxpath
+  url: https://github.com/rodricios/
+  pages_url: https://rodricios.github.io/wxpath/
+
+project:
+  name: wxpath
+  description: Declarative web crawling with XPath
+  author: Rodrigo Palacios
+  author_email: rodrigopala91@gmail.com
+  version: 0.4.1
