@@ -59,13 +59,9 @@ def configure_logging(level: str | int = "INFO", **overrides) -> None:
 
     Call this once in an application entry-point **or** rely on defaults.
 
-    Parameters
-    ----------
-    level
-        "DEBUG"|"INFO"|... or `logging.DEBUG`, overrides the root wxpath logger.
-    overrides
-        Dict that is merged (shallow) into the default dictConfig.
-        Lets advanced users swap formatters/handlers.
+    Args:
+        level (str | int): Logging level to configure. Defaults to "INFO".
+        **overrides: Additional logging configuration overrides
     """
     conf = {**_DEFAULT_LOGGING_CONF, **overrides}
     conf["loggers"]["wxpath"]["level"] = level
