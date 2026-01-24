@@ -99,27 +99,27 @@ Configure wxpath's logging system.
 ### Core
 
 - [Engine](core/engine.md) - Main execution engine (`WXPathEngine`)
-- [TODO: Parser](core/parser.md) - Expression parser and AST nodes
-- [TODO: Models](core/models.md) - Data models (CrawlTask, intents)
+- TODO: Parser - Expression parser and AST nodes
+- TODO: Models - Data models (CrawlTask, intents)
 - [Operations](core/ops.md) - Operation handlers and registry
 
 ### HTTP
 
 - [Crawler](http/crawler.md) - HTTP client (`Crawler`, `BaseCrawler`)
 
-- [TODO: Cache](http/cache.md) - Cache backend factory
-- [TODO: Policy](http/policy/) - Retry, robots, throttling policies
-- [TODO: Stats](http/stats.md) - Crawler statistics
+- TODO: Cache - Cache backend factory
+- TODO: Policy - Retry, robots, throttling policies
+- TODO: Stats - Crawler statistics
 
 ### Hooks
 
-- [TODO: Registry](hooks/registry.md) - Hook registration and protocol
-- [TODO: Built-in Hooks](hooks/builtin.md) - Predefined hooks
+- TODO: Registry - Hook registration and protocol
+- TODO: Built-in Hooks - Predefined hooks
 
 ### Utilities
 
-- [TODO: Logging](util/logging.md) - Logging configuration
-- [TODO: Serialize](util/serialize.md) - Type simplification
+- TODO: Logging - Logging configuration
+- TODO: Serialize - Type simplification
 
 ### Configuration
 

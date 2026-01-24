@@ -9,8 +9,8 @@ The `wxpath.core` module contains the expression parser, execution engine, and d
 | Module | Description |
 |--------|-------------|
 | [engine](engine.md) | Main execution engine (`WXPathEngine`) |
-| [TODO: parser](parser.md) | Pratt-style expression parser |
-| [TODO: models](models.md) | Data models and intent types |
+| TODO: parser | Pratt-style expression parser |
+| TODO: models | Data models and intent types |
 | [ops](ops.md) | Operation handlers and registry |
 
 ## Quick Import

@@ -70,35 +70,35 @@ nav:
       - CLI: guide/cli.md
       - Configuration: guide/configuration.md
       - Hooks: guide/hooks.md
-      - Caching: guide/caching.md
+      # - Caching: guide/caching.md
   - API Reference:
       - Overview: api/index.md
       - Core:
           - Overview: api/core/index.md
           - Engine: api/core/engine.md
-          - Parser: api/core/parser.md
-          - Models: api/core/models.md
+          # - Parser: api/core/parser.md
+          # - Models: api/core/models.md
           - Operations: api/core/ops.md
-          - DOM Utilities: api/core/dom.md
+          # - DOM Utilities: api/core/dom.md
       - HTTP:
           - Overview: api/http/index.md
           - Crawler: api/http/crawler.md
-          - Request: api/http/request.md
-          - Response: api/http/response.md
-          - Cache: api/http/cache.md
-          - Policy:
-              - Retry: api/http/policy/retry.md
-              - Robots: api/http/policy/robots.md
-              - Throttler: api/http/policy/throttler.md
-              - Backoff: api/http/policy/backoff.md
-          - Stats: api/http/stats.md
-      - Hooks:
-          - Overview: api/hooks/index.md
-          - Registry: api/hooks/registry.md
-          - Built-in Hooks: api/hooks/builtin.md
-      - Utilities:
-          - Logging: api/util/logging.md
-          - Serialize: api/util/serialize.md
+#           - Request: api/http/request.md
+#           - Response: api/http/response.md
+#           - Cache: api/http/cache.md
+#           - Policy:
+#               - Retry: api/http/policy/retry.md
+#               - Robots: api/http/policy/robots.md
+#               - Throttler: api/http/policy/throttler.md
+#               - Backoff: api/http/policy/backoff.md
+#           - Stats: api/http/stats.md
+#       - Hooks:
+#           - Overview: api/hooks/index.md
+#           - Registry: api/hooks/registry.md
+#           - Built-in Hooks: api/hooks/builtin.md
+#       - Utilities:
+#           - Logging: api/util/logging.md
+#           - Serialize: api/util/serialize.md
       - Settings: api/settings.md
   - Examples: examples.md
 

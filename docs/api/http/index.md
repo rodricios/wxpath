@@ -9,8 +9,8 @@ The `wxpath.http` module provides the HTTP client infrastructure.
 | Module | Description |
 |--------|-------------|
 | [crawler](crawler.md) | HTTP crawlers (`Crawler`, `BaseCrawler`, `PlaywrightCrawler`) |
-| [TODO: stats](stats.md) | Crawler statistics |
-| [TODO: policy/](policy/) | Retry, robots, throttling policies |
+| TODO: stats | Crawler statistics |
+| TODO: policy | Retry, robots, throttling policies |
 
 ## Quick Import
 
