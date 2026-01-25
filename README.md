@@ -1,6 +1,6 @@
 # **wxpath** - declarative web graph traversal with XPath 
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/) [![Documentation Status](https://img.shields.io/badge/python-mkdocs-green.svg)](https://your-documentation-link.com)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/) [![Documentation Status](https://img.shields.io/badge/documentation-green.svg)](https://rodricios.github.io/wxpath)
 
 
 **wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, wxpath lets you describe what to follow and what to extract in a single expression. **wxpath** executes that expression concurrently, breadth-first-*ish*, and streams results as they are discovered.
