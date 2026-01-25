@@ -1,6 +1,7 @@
 """MkDocs macros module for loading template variables from docs_config.yml."""
-import yaml
 from pathlib import Path
+
+import yaml
 
 
 def define_env(env):

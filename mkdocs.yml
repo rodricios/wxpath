@@ -99,6 +99,8 @@ nav:
 #       - Utilities:
 #           - Logging: api/util/logging.md
 #           - Serialize: api/util/serialize.md
+      - Integrations:
+          - LangChain: api/integrations/langchain.md
       - Settings: api/settings.md
   - Examples: examples.md
 
