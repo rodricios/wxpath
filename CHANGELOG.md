@@ -26,3 +26,6 @@
   - Settings for concurrency, per-host, respect robots, verify_ssl and headers
   - Persistent crawls with SQLite
   - Export to CSV, JSON
+- Extend wxpath DSL with `wx:` functions/macros 
+    - e.g. `wx:current-url(), wx:fetch-time(), wx:status-code(), main-article-text(), etc.`
+- Add LangChain integration for document loading (RAG)

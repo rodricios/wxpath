@@ -114,7 +114,7 @@ Standard XPath 3.1 functions plus wxpath-specific:
 | `wx:elem()` | Current HTML element (Warning: memory will explode with deep crawls) |
 | `wx:internal-links()` | Internal links |
 | `wx:external-links()` | External links |
-| `wx:main-article-text()` | Main article text |
+| `wx:main-article-text()` | Main article text (reimplimentation of [eatiht](https://github.com/rodricios/eatiht)) |
 
 ### Future Potential Functions
 
@@ -125,6 +125,7 @@ Standard XPath 3.1 functions plus wxpath-specific:
 | `wx:clean-text()` | Normalizes whitespace and newlines |
 | `wx:status-text()` | Current HTTP status text |
 | `wx:delay()` | Sleep for the specified number of seconds |
+| `wx:headers()` | HTTP headers |
 
 
 ## Examples

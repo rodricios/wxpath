@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wxpath"
-version = "0.4.1"
+version = "0.5.0"
 description = "wxpath - a declarative web crawler and data extractor"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,12 +13,21 @@ authors = [
 ]
 license = "MIT"
 license-files = ["LICENSE"]
+
 dependencies = [
     "lxml>=4.0",
     "elementpath>=5.0.0,<=5.0.3",
     "aiohttp>=3.8.0,<=3.12.15",
     "tqdm>=4.0.0"
 ]
+
+[project.urls]
+Homepage = "https://rodricios.github.io/wxpath"
+Documentation = "https://rodricios.github.io/wxpath"
+Repository = "https://github.com/rodricios/wxpath"
+Issues = "https://github.com/rodricios/wxpath/issues"
+Changelog = "https://github.com/rodricios/wxpath/blob/main/CHANGELOG.md"
+
 
 [project.optional-dependencies]
 cache = ["aiohttp-client-cache>=0.14.0"]
