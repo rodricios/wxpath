@@ -25,6 +25,11 @@ cache = ["aiohttp-client-cache>=0.14.0"]
 cache-sqlite   = ["aiohttp-client-cache[sqlite]"]
 cache-redis    = ["aiohttp-client-cache[redis]"]
 
+# langchain langchain-ollama langchain-chroma chromadb
+llm = ["langchain>=1.0.0", "langchain-core>=1.0.0", "langchain-ollama>=1.0.0", 
+       "langchain-community>=0.4.0", "langchain-chroma>=1.0.0", "chromadb>=1.0.0",
+       "langchain-text-splitters>=1.1.0"]
+
 test = ["pytest>=7.0", "pytest-asyncio>=0.23"]
 dev = ["ruff"]
 docs = ["mkdocs>=1.5", "mkdocs-material>=9.0", "mkdocstrings[python]>=0.24", "mkdocs-macros-plugin>=1.0", "pyyaml>=6.0"]
