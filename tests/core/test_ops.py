@@ -427,59 +427,6 @@ class TestHandleXpath:
         assert value.base_url == "http://site/"
         assert value.depth == 3
 
-    def test_xpath_macro_backlink_expansion(self):
-        elem = html.fromstring("<html><body></body></html>", base_url="http://site/page")
-        elem.set("backlink", "http://site/page")
-        elem.getroottree().getroot().set("depth", "2")
-
-        class DummyElem:
-            def __init__(self, elem):
-                self._elem = elem
-                self.captured = None
-
-            def __getattr__(self, name):
-                return getattr(self._elem, name)
-
-            def xpath3(self, expr):
-                self.captured = expr
-                return []
-
-        delem = DummyElem(elem)
-        xpath_node = Xpath("wx:backlink()")
-        segments = Segments([xpath_node])
-
-        op = get_operator(xpath_node)
-        list(op(delem, segments, 7))
-
-        assert "string('" in delem.captured
-        assert "http://site/page" in delem.captured
-
-    def test_xpath_macro_depth_expansion(self):
-        elem = html.fromstring("<html><body></body></html>", base_url="http://site/page")
-        elem.set("backlink", "http://site/page")
-        elem.getroottree().getroot().set("depth", "5")
-
-        class DummyElem:
-            def __init__(self, elem):
-                self._elem = elem
-                self.captured = None
-
-            def __getattr__(self, name):
-                return getattr(self._elem, name)
-
-            def xpath3(self, expr):
-                self.captured = expr
-                return []
-
-        delem = DummyElem(elem)
-        xpath_node = Xpath("wx:depth()")
-        segments = Segments([xpath_node])
-
-        op = get_operator(xpath_node)
-        list(op(delem, segments, 7))
-
-        assert "number(5)" in delem.captured
-
     def test_xpath_raises_when_elem_is_none(self):
         xpath_node = Xpath("//p/text()")
         segments = Segments([xpath_node])

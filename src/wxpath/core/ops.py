@@ -112,16 +112,6 @@ def _handle_xpath(curr_elem: html.HtmlElement,
         raise ValueError("Element must be provided when path_expr does not start with 'url()'.")
     base_url = getattr(curr_elem, 'base_url', None)
     log.debug("base url", extra={"depth": curr_depth, "op": 'xpath', "base_url": base_url})
-
-    _backlink_str = f"string('{curr_elem.get('backlink')}')"
-    # We use the root tree's depth and not curr_depth because curr_depth accounts for a +1 
-    # increment after each url*() hop
-    _depth_str = f"number({curr_elem.getroottree().getroot().get('depth')})"
-    expr = expr.replace('wx:backlink()', _backlink_str)
-    expr = expr.replace('wx:backlink(.)', _backlink_str)
-    expr = expr.replace('wx:depth()', _depth_str)
-    expr = expr.replace('wx:depth(.)', _depth_str)
-
     elems = curr_elem.xpath3(expr)
     
     next_segments = curr_segments[1:]

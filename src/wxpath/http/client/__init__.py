@@ -5,5 +5,5 @@ from wxpath.http.client.response import Response
 __all__ = [
     "Crawler",
     "Request",
-    "Response"
+    "Response",
 ]
