@@ -71,6 +71,7 @@ class Crawler:
         *,
         headers: dict | None = None,
         proxies: dict | None = None,
+        verify_ssl: bool | None = None,
         retry_policy: RetryPolicy | None = None,
         throttler: AbstractThrottler | None = None,
         auto_throttle_target_concurrency: float = None,
@@ -82,6 +83,9 @@ class Crawler:
 
         self.concurrency = concurrency if concurrency is not None else cfg.concurrency
         self.per_host = per_host if per_host is not None else cfg.per_host
+        self._verify_ssl = verify_ssl if verify_ssl is not None else getattr(
+            cfg, "verify_ssl", True
+        )
 
         timeout = timeout if timeout is not None else cfg.timeout
         self._timeout = aiohttp.ClientTimeout(total=timeout)
@@ -141,7 +145,11 @@ class Crawler:
         """Construct an `aiohttp.ClientSession` with tracing and pooling."""
         trace_config = build_trace_config(self._stats)
         # Need to build the connector as late as possible as it requires the loop
-        connector = aiohttp.TCPConnector(limit=self.concurrency*2, ttl_dns_cache=300)
+        connector = aiohttp.TCPConnector(
+            limit=self.concurrency * 2,
+            ttl_dns_cache=300,
+            ssl=self._verify_ssl,
+        )
         return get_async_session(
             headers=self._headers,
             timeout=self._timeout,
@@ -274,22 +282,26 @@ class Crawler:
                     else:
                         log.info("[CACHE MISS]", extra={"req.url": req.url, "resp.url": resp.url})
 
+                    _start = time.monotonic()
                     body = await resp.read()
 
-                    latency = time.monotonic() - start
+                    end = time.monotonic()
+                    latency = end - _start
                     self.throttler.record_latency(host, latency)
 
                     if self.retry_policy.should_retry(req, response=resp):
                         await self._retry(req)
                         return None
 
-                    return Response(req, resp.status, body, dict(resp.headers))
+                    return Response(req, resp.status, body, dict(resp.headers),
+                                    request_start=_start, response_end=end)
             except asyncio.CancelledError:
                 # Normal during shutdown / timeout propagation
                 log.debug("cancelled error", extra={"url": req.url})
                 raise
             except Exception as exc:
-                latency = time.monotonic() - start
+                end = time.monotonic()
+                latency = end - start
                 self.throttler.record_latency(host, latency)
 
                 if self.retry_policy.should_retry(req, exception=exc):
@@ -297,7 +309,7 @@ class Crawler:
                     return None
                 
                 log.error("request failed", extra={"url": req.url}, exc_info=exc)
-                return Response(req, 0, b"", error=exc)
+                return Response(req, 0, b"", error=exc, request_start=start, response_end=end)
 
     async def _retry(self, req: Request) -> None:
         """Reschedule a request according to the retry policy."""

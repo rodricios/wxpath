@@ -13,7 +13,8 @@ except ImportError:
 
 
 TOKEN_SPEC = [
-    ("NUMBER",   r"\d+(\.\d+)?"),
+    ("NUMBER",   r"\d+\.\d+"),
+    ("INTEGER",  r"\d+"),
     ("STRING",   r"'([^'\\]|\\.)*'|\"([^\"\\]|\\.)*\""), # TODO: Rename to URL Literal
     ("WXPATH",   r"/{0,3}\s*url"),  # Must come before NAME to match 'url' as WXPATH
     # ("///URL",   r"/{3}\s*url"),
@@ -22,6 +23,7 @@ TOKEN_SPEC = [
     ("URL",      r"\s*url"),  # Must come before NAME to match 'url' as WXPATH
     # ("NAME",     r"[a-zA-Z_][a-zA-Z0-9_]*"),
     ("FOLLOW",   r",?\s{,}follow="),
+    ("DEPTH",    r",?\s{,}depth="),
     ("OP",       r"\|\||<=|>=|!=|=|<|>|\+|-|\*|/|!"),  # Added || for string concat
     ("LPAREN",   r"\("),
     ("RPAREN",   r"\)"),
@@ -62,6 +64,14 @@ def tokenize(src: str):
 @dataclass
 class Number:
     value: float
+
+@dataclass
+class Integer:
+    value: int
+
+@dataclass
+class Depth(Integer):
+    pass
 
 @dataclass
 class String:
@@ -273,6 +283,10 @@ class Parser:
         if tok.type == "NUMBER":
             self.advance()
             return Number(float(tok.value))
+
+        if tok.type == "INTEGER":
+            self.advance()
+            return Integer(int(tok.value))
         
         if tok.type == "STRING":
             self.advance()
@@ -358,18 +372,18 @@ class Parser:
             self.advance()
         
         return result
-    
 
     def capture_url_arg_content(self) -> list[Call | Xpath | ContextItem]:
         """Capture content inside a url() call, handling nested wxpath expressions.
 
         Supports patterns like::
 
-            url('...')                      -> [String]
-            url('...' follow=//a/@href)     -> [String, Xpath]
-            url(//a/@href)                  -> [Xpath]
-            url( url('..')//a/@href )       -> [Call, Xpath]
-            url( url( url('..')//a )//b )   -> [Call, Xpath]
+            url('...')                          -> [String]
+            url('...' follow=//a/@href)         -> [String, Xpath]
+            url('...' follow=//a/@href depth=2) -> [String, Xpath, Integer]
+            url(//a/@href depth=2)              -> [Xpath, Integer]
+            url( url('..')//a/@href )           -> [Call, Xpath]
+            url( url( url('..')//a )//b )       -> [Call, Xpath]
 
         Returns:
             A list of parsed elements: Xpath nodes for xpath content and Call
@@ -380,7 +394,10 @@ class Parser:
         paren_balance = 1  # We're already inside the opening paren of url()
         brace_balance = 0  # Track braces for map constructors
         reached_follow_token = False
+        reached_depth_token = False
         follow_xpath = ""
+        depth_number = ""
+
         while paren_balance > 0 and self.token.type != "EOF":
             if self.token.type == "WXPATH":
                 # Found nested wxpath: save any accumulated xpath content first
@@ -396,13 +413,22 @@ class Parser:
 
             elif self.token.type == "FOLLOW":
                 reached_follow_token = True
+                reached_depth_token = False
+                self.advance()
+
+            elif self.token.type == "DEPTH":
+                reached_depth_token = True
+                reached_follow_token = False
                 self.advance()
 
             elif self.token.type == "LPAREN":
                 # Opening paren that's NOT part of a url() call
                 # (it's part of an xpath function like contains(), starts-with(), etc.)
                 paren_balance += 1
-                current_xpath += self.token.value
+                if not reached_follow_token:
+                    current_xpath += self.token.value
+                else:
+                    follow_xpath += self.token.value
                 self.advance()
                 
             elif self.token.type == "RPAREN":
@@ -410,26 +436,37 @@ class Parser:
                 if paren_balance == 0:
                     # This is the closing paren of the outer url()
                     break
-                current_xpath += self.token.value
+                if not reached_follow_token:
+                    current_xpath += self.token.value
+                else:
+                    follow_xpath += self.token.value
                 self.advance()
 
             elif self.token.type == "LBRACE":
                 # Opening brace for map constructors
                 brace_balance += 1
-                current_xpath += self.token.value
+                if not reached_follow_token:
+                    current_xpath += self.token.value
+                else:
+                    follow_xpath += self.token.value
                 self.advance()
 
             elif self.token.type == "RBRACE":
                 brace_balance -= 1
-                current_xpath += self.token.value
+                if not reached_follow_token:
+                        current_xpath += self.token.value
+                else:
+                    follow_xpath += self.token.value
                 self.advance()
                 
             else:
                 # Accumulate all other tokens as xpath content
-                if not reached_follow_token:
-                    current_xpath += self.token.value
-                else: 
+                if reached_follow_token:
                     follow_xpath += self.token.value
+                elif reached_depth_token:
+                    depth_number += self.token.value
+                else:
+                    current_xpath += self.token.value
 
                 self.advance()
         
@@ -447,6 +484,9 @@ class Parser:
         if follow_xpath.strip():
             elements.append(Xpath(follow_xpath.strip()))
 
+        if depth_number.strip():
+            elements.append(Depth(int(depth_number.strip())))
+
         return elements
 
     def parse_call(self, func_name: str) -> Call | Segments:
@@ -462,13 +502,16 @@ class Parser:
                 self.advance()
                 # Handle follow=...
                 if self.token.type == "FOLLOW":
-                    self.advance()
                     follow_arg = self.capture_url_arg_content()
                     args.extend(follow_arg)
+                if self.token.type == "DEPTH":
+                    depth_arg = self.capture_url_arg_content()
+                    args.extend(depth_arg)
             elif self.token.type == "WXPATH":
                 # Nested wxpath: url( url('...')//a/@href ) or url( /url(...) )
-                # Use capture_url_arg_content to handle nested wxpath and xpath
-                args = self.capture_url_arg_content()
+                # NOTE: We used to use capture_url_arg_content to handle nested wxpath and xpath
+                # args = self.capture_url_arg_content()
+                args = self.nud()
             else:
                 # Simple xpath argument: url(//a/@href)
                 # Could still contain nested wxpath, so use capture_url_arg_content
@@ -489,8 +532,18 @@ class Parser:
 
         return _specify_call_types(func_name, args)
 
-
 def _specify_call_types(func_name: str, args: list) -> Call | Segments:
+    """
+    Specify the type of a call based on the function name and arguments.
+    TODO: Provide example wxpath expressions for each call type.
+    
+    Args:
+        func_name: The name of the function.
+        args: The arguments of the function.
+
+    Returns:
+        Call | Segments: The type of the call.
+    """
     if func_name == "url":
         if len(args) == 1:
             if isinstance(args[0], String):
@@ -500,15 +553,31 @@ def _specify_call_types(func_name: str, args: list) -> Call | Segments:
             else:
                 raise ValueError(f"Unknown argument type: {type(args[0])}")
         elif len(args) == 2:
-            if isinstance(args[0], String) and isinstance(args[1], Xpath):
+            arg0, arg1 = args
+            if isinstance(arg0, String) and isinstance(arg1, Xpath):
+                # Example: url('...', follow=//a/@href)
                 return UrlCrawl(func_name, args)
-            elif isinstance(args[0], UrlLiteral) and isinstance(args[1], Xpath):
+            elif isinstance(arg0, String) and isinstance(arg1, Integer):
+                # Example: url('...', depth=2)
+                return UrlLiteral(func_name, args)
+            elif isinstance(arg0, UrlLiteral) and isinstance(arg1, Xpath):
                 args.append(UrlQuery('url', [ContextItem()]))
                 return Segments(args)
-            elif isinstance(args[0], (Segments, list)) and isinstance(args[1], Xpath):
-                segs = args[0]
-                segs.append(args[1])
+            elif isinstance(arg0, (Segments, list)) and isinstance(arg1, Xpath):
+                segs = arg0
+                segs.append(arg1)
                 return Segments(segs)
+            else:
+                raise ValueError(f"Unknown arguments: {args}")
+        elif len(args) == 3:
+            arg0, arg1, arg2 = args
+            if (isinstance(arg0, String) and (
+                (isinstance(arg1, Xpath) and isinstance(arg2, Integer)) or
+                (isinstance(arg1, Integer) and isinstance(arg2, Xpath))
+            )):
+                # Example: url('...', follow=//a/@href, depth=2)
+                # Example: url('...', depth=2, follow=//a/@href)
+                return UrlCrawl(func_name, args)
             else:
                 raise ValueError(f"Unknown arguments: {args}")
         else:

@@ -118,6 +118,26 @@ url('https://quotes.toscrape.com/tag/humor/', follow=//li[@class='next']/a/@href
 items = list(wxpath.wxpath_async_blocking_iter(path_expr, max_depth=3))
 ```
 
+
+## EXAMPLE 6B - Scraping quotes.toscrape.com with pagination and author extraction
+
+```python
+import wxpath
+
+path_expr = """
+url('https://quotes.toscrape.com', depth=5, follow=//li[@class='next']/a/@href)
+  //url(//a[contains(@href, '/author/')]/@href)
+    /map {
+      'url': string(base-uri(.)),
+      'name': //h3[@class='author-title']/text(),
+      'born': //span[@class='author-born-date']/text(),
+      'bio': //div[@class='author-description']/text() ! normalize-space(.) ! string(.),
+    }
+"""
+
+items = list(wxpath.wxpath_async_blocking_iter(path_expr, max_depth=5))
+```
+
 ## Example 7 - Scrape HackerNews comments
 
 ```python
@@ -144,4 +164,43 @@ url('https://news.ycombinator.com')///url(//a[text()='comments']/@href | //a[@cl
 """
 
 items = list(wxpath.wxpath_async_blocking_iter(path_expr, max_depth=10))
+```
+
+
+## EXAMPLE 8 - Find Department Chair
+
+```python
+import wxpath
+
+path_expr = """
+url('https://csm.fresnostate.edu/about/directory/index.html', depth=1)
+  //url(//tbody/tr[contains(.//td[2]/text(), 'Prof')]/td[1]/a/@href)
+    //div[@id='main-content']//text()[contains(., 'Department') ]
+      / map {
+          'title': (//h1/text())[1],
+          'url': string(base-uri(.))
+      }
+"""
+
+items = list(wxpath.wxpath_async_blocking_iter(path_expr, max_depth=1))
+```
+
+
+## EXAMPLE 9 - University of Notre Dame Faculty
+
+```python
+import wxpath
+
+path_expr = """
+url('https://engineering.nd.edu/faculty/', follow=//div[@class='nav-links']//a[contains(@class, 'next')]/@href, depth=2)
+  //url(//article[@id="all-people-and-profiles"]//div[@class='directory']//h2//a/@href)
+    / map {
+        'name': (//h1[@class='page-title']/text())[1] ! string(.),
+        'url': string(base-uri(.)),
+        'title': (//h2[@class='title-department']/text())[1] ! string(.),
+        'email': (//a[contains(@href, 'mailto:')]/@href)[1] ! string(.)
+    }
+"""
+
+items = list(wxpath.wxpath_async_blocking_iter(path_expr, max_depth=2))
 ```

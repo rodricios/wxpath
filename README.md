@@ -3,6 +3,24 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/) [![Documentation Status](https://img.shields.io/badge/documentation-green.svg)](https://rodricios.github.io/wxpath)
 
 
+> NEW: [TUI](https://rodricios.github.io/wxpath/tui/quickstart.md) - Interactive terminal interface (powered by Textual) for testing wxpath expressions and exporting data.
+
+![Wxpath TUI Demo screenshot](docs/assets/images/demo1.jpg)
+
+## Install
+
+Requires Python 3.10+.
+
+```
+pip install wxpath
+# For TUI support
+pip install wxpath[tui]
+```
+---
+
+
+## What is wxpath?
+
 **wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, wxpath lets you describe what to follow and what to extract in a single expression. **wxpath** executes that expression concurrently, breadth-first-*ish*, and streams results as they are discovered.
 
 This expression fetches a page, extracts links, and streams them concurrently - no crawl loop required:
@@ -42,13 +60,23 @@ Most web scrapers force you to write crawl control flow first, and extraction se
 - **Extraction is expressed inline**
 - **The engine handles scheduling, concurrency, and deduplication**
 
+
+### RAG-Ready Output 
+
+Extract clean, structured JSON hierarchies directly from the graph - feed your LLMs signal, not noise. Refer to [LangChain Integration](https://rodricios.github.io/wxpath/api/integrations/langchain/) for more details.
+
+
+### Deterministic
+
+**wxpath** is deterministic (read: not powered by LLMs). While we can't guarantee the network is stable, we can guarantee the traversal is.
+
 ## Documentation (WIP)
 
 Documentation is now available [here](https://rodricios.github.io/wxpath/).
 
 ## Contents
 
-- [Example](#example)
+- [Example: Knowledge Graph](#example)
 - [Language Design](DESIGN.md)
 - [`url(...)` and `///url(...)` Explained](#url-and-url-explained)
 - [General flow](#general-flow)
@@ -58,6 +86,7 @@ Documentation is now available [here](https://rodricios.github.io/wxpath/).
 - [XPath 3.1](#xpath-31-by-default)
 - [Progress Bar](#progress-bar)
 - [CLI](#cli)
+- [TUI](#tui)
 - [Persistence and Caching](#persistence-and-caching)
 - [Settings](#settings)
 - [Hooks (Experimental)](#hooks-experimental)
@@ -272,12 +301,17 @@ Command line options:
 --cache                [true|false] (Default: False) Persist crawl results to a local database
 ```
 
+## TUI
+
+**wxpath** provides a terminal interface (TUI) for interactive expression testing and data extraction.
+
+See [TUI Quickstart](https://rodricios.github.io/wxpath/tui/quickstart.md) for more details.
 
 ## Persistence and Caching
 
 **wxpath** optionally persists crawl results to a local database. This is especially useful when you're crawling a large number of URLs, and you decide to pause the crawl, change extraction expressions, or otherwise need to restart the crawl. 
 
-**wxpath** supports two backends: sqlite and redis. SQLite is great for small-scale crawls, with a single worker (i.e., `engine.crawler.concurrency == 1`). Redis is great for large-scale crawls, with multiple workers. You will be encounter a warning if you `min(engine.crawler.concurrency, engine.crawler.per_host) > 1` when using the sqlite backend.
+**wxpath** supports two backends: sqlite and redis. SQLite is great for small-scale crawls, with a single worker (i.e., `engine.crawler.concurrency == 1`). Redis is great for large-scale crawls, with multiple workers. You will encounter a warning if `min(engine.crawler.concurrency, engine.crawler.per_host) > 1` when using the sqlite backend.
 
 To use, you must install the appropriate optional dependency:
 

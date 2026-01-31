@@ -18,7 +18,7 @@ from wxpath.core.models import (
     ProcessIntent,
 )
 from wxpath.core.ops import get_operator
-from wxpath.core.parser import Binary, Segment, Segments
+from wxpath.core.parser import Binary, Depth, Segment, Segments
 from wxpath.core.runtime.helpers import parse_html
 from wxpath.hooks.registry import FetchContext, get_hooks
 from wxpath.http.client.crawler import Crawler
@@ -158,6 +158,25 @@ class WXPathEngine(HookedEngineBase):
         if allow_redirects:
             self.allowed_response_codes |= {301, 302, 303, 307, 308}
 
+    def _get_max_depth(self, bin_or_segs: Binary | Segments, max_depth: int) -> int:
+        """Get the maximum crawl depth for a given expression. Will find a Depth
+        argument at the beginning of the expression and return its value. Otherwise, returns the
+        max_depth value provided.
+        TODO: There has to be a better way to do this.
+        """
+        if isinstance(bin_or_segs, Binary):
+            if hasattr(bin_or_segs.left, 'func') == 'url': 
+                depth_arg = [arg for arg in bin_or_segs.left.args if isinstance(arg, Depth)][0]
+                return int(depth_arg.value)
+            elif hasattr(bin_or_segs.right, 'func') == 'url':
+                depth_arg = [arg for arg in bin_or_segs.right.args if isinstance(arg, Depth)][0]
+                return int(depth_arg.value)
+        elif isinstance(bin_or_segs, Segments):
+            depth_arg = [arg for arg in bin_or_segs[0].args if isinstance(arg, Depth)]
+            if depth_arg:
+                return int(depth_arg[0].value)
+        return max_depth
+
     async def run(
             self, 
             expression: str, 
@@ -170,6 +189,17 @@ class WXPathEngine(HookedEngineBase):
         Builds and drives a BFS-like crawl pipeline that honors robots rules,
         throttling, and hook callbacks while walking the web graph.
 
+        NOTES ON max_depth:
+        If depth is provided in the expression, it will be used to limit the depth of the
+        crawl. If depth is provided in the expression and max_depth is provided as an argument
+        to `run`, the inline depth in the expression will take precedence.
+
+        Currently, max_depth control flow logic is detected and executed in the
+        engine. In the future, the operation handlers (ops.py) could be responsible for 
+        detecting max_depth, and sending a terminal intent to the engine. It's also possible 
+        that the depth terminals are relative to the current depth (i.e. `url(//xpath, depth=2)`
+        implies crawling only the next 2 levels). This is not yet supported.
+
         Args:
             expression: WXPath expression string to evaluate.
             max_depth: Maximum crawl depth to follow for url hops.
@@ -179,7 +209,9 @@ class WXPathEngine(HookedEngineBase):
             Extracted values produced by the expression (HTML elements or
             wxpath-specific value types).
         """
-        segments = parser.parse(expression)
+        bin_or_segs = parser.parse(expression)
+
+        max_depth = self._get_max_depth(bin_or_segs, max_depth)
 
         queue: asyncio.Queue[CrawlTask] = asyncio.Queue()
         inflight: dict[str, CrawlTask] = {}
@@ -223,7 +255,7 @@ class WXPathEngine(HookedEngineBase):
             seed_task = CrawlTask(
                 elem=None,
                 url=None,
-                segments=segments,
+                segments=bin_or_segs,
                 depth=-1,
                 backlink=None,
             )
@@ -307,6 +339,7 @@ class WXPathEngine(HookedEngineBase):
                     base_url=task.url,
                     backlink=task.backlink,
                     depth=task.depth,
+                    response=resp
                 )
 
                 elem = await self.post_parse_hooks(elem, task)

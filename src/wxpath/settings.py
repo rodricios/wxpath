@@ -54,10 +54,12 @@ SETTINGS = {
                 'concurrency': 16,
                 'per_host': 8,
                 'timeout': 15,
+                'verify_ssl': True,
                 'headers': {
                     "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" 
                                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                   "Chrome/142.0.0.0 Safari/537.36")},
+                                   "Chrome/142.0.0.0 Safari/537.36")
+                },
                 'proxies': None,
                 'auto_throttle_target_concurrency': None,
                 'auto_throttle_start_delay': 0.25,

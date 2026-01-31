@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wxpath"
-version = "0.4.1"
+version = "0.5.0"
 description = "wxpath - a declarative web crawler and data extractor"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,6 +13,7 @@ authors = [
 ]
 license = "MIT"
 license-files = ["LICENSE"]
+
 dependencies = [
     "lxml>=4.0",
     "elementpath>=5.0.0,<=5.0.3",
@@ -20,17 +21,32 @@ dependencies = [
     "tqdm>=4.0.0"
 ]
 
+[project.urls]
+Homepage = "https://rodricios.github.io/wxpath"
+Documentation = "https://rodricios.github.io/wxpath"
+Repository = "https://github.com/rodricios/wxpath"
+Issues = "https://github.com/rodricios/wxpath/issues"
+Changelog = "https://github.com/rodricios/wxpath/blob/main/CHANGELOG.md"
+
+
 [project.optional-dependencies]
 cache = ["aiohttp-client-cache>=0.14.0"]
 cache-sqlite   = ["aiohttp-client-cache[sqlite]"]
 cache-redis    = ["aiohttp-client-cache[redis]"]
 
+# langchain langchain-ollama langchain-chroma chromadb
+llm = ["langchain>=1.0.0", "langchain-core>=1.0.0", "langchain-ollama>=1.0.0", 
+       "langchain-community>=0.4.0", "langchain-chroma>=1.0.0", "chromadb>=1.0.0",
+       "langchain-text-splitters>=1.1.0"]
+
 test = ["pytest>=7.0", "pytest-asyncio>=0.23"]
 dev = ["ruff"]
-docs = ["mkdocs>=1.5", "mkdocs-material>=9.0", "mkdocstrings[python]>=0.24", "mkdocs-macros-plugin>=1.0", "pyyaml>=6.0"]
+docs = ["mkdocs>=1.5", "mkdocs-material>=9.0", "mkdocstrings[python]>=0.24", "mkdocs-macros-plugin>=1.0", "mkdocs-resize-images>=1.0", "mkdocs-glightbox", "pyyaml>=6.0"]
+tui = ["textual>=1.0.0", "aiohttp-client-cache>=0.14.0", "aiohttp-client-cache[sqlite]"]
 
 [project.scripts]
 wxpath = "wxpath.cli:main"
+wxpath-tui = "wxpath.tui:main"
 
 [tool.pytest.ini_options]
 minversion = "6.0"

@@ -55,6 +55,10 @@ url('https://quotes.toscrape.com/tag/humor/', follow=//li[@class='next']/a/@href
 """
 ```
 
+###  `url('...', follow=..., depth=...)` - Deep Crawl (starting from root) with depth limit
+
+The `depth` parameter allows you to specify the maximum depth of the crawl. This is useful when you want to limit the depth of the crawl to a specific number of levels.
+
 ## Expression Structure
 
 A wxpath expression is a sequence of **segments**:
@@ -73,7 +77,7 @@ Where:
 | Segment | Description |
 |---------|-------------|
 | `url('...')` | Fetch from literal URL |
-| `url(xpath)` | Fetch from XPath-extracted URLs |
+| `/url(xpath)` | Fetch from XPath-extracted URLs |
 | `//url(xpath)` | One-hop link following |
 | `///url(xpath)` | Recursive deep crawl |
 | XPath | Standard XPath 3.1 expression |
@@ -101,8 +105,28 @@ Standard XPath 3.1 functions plus wxpath-specific:
 | Function | Description |
 |----------|-------------|
 | `base-uri(.)` | Current document URL |
+| `wx:current-url()` | Current document URL |
 | `wx:backlink(.)` | URL that linked to current page |
 | `wx:depth(.)` | Current crawl depth |
+| `wx:fetch-time()` | Fetch time |
+| `wx:elapsed()` | Fetch time |
+| `wx:status-code()` | Current HTTP status code |
+| `wx:elem()` | Current HTML element (Warning: memory will explode with deep crawls) |
+| `wx:internal-links()` | Internal links |
+| `wx:external-links()` | External links |
+| `wx:main-article-text()` | Main article text (reimplimentation of [eatiht](https://github.com/rodricios/eatiht)) |
+
+### Future Potential Functions
+
+| Function | Description |
+|----------|-------------|
+| `post(...)` | HTTP POST |
+| `wx:limit()` | Cap results at expression level |
+| `wx:clean-text()` | Normalizes whitespace and newlines |
+| `wx:status-text()` | Current HTTP status text |
+| `wx:delay()` | Sleep for the specified number of seconds |
+| `wx:headers()` | HTTP headers |
+
 
 ## Examples
 

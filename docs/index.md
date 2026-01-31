@@ -24,8 +24,9 @@
 # Declarative web graph traversal with XPath
 
 > **Warning:** pre-1.0.0 - APIs and contracts may change.
+> NEW: [TUI](tui/quickstart.md) - Interactive terminal interface (powered by Textual) for testing wxpath expressions and extracting data.
 
-**wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, wxpath lets you describe what to follow and what to extract in a single expression.
+**wxpath** is a declarative, deterministic (read: not powered by LLMs), async web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, wxpath lets you describe what to follow and what to extract in a single expression.
 
 ## Quick Start
 
@@ -41,27 +42,28 @@ for link in wxpath.wxpath_async_blocking_iter(expr):
 ## Key Features
 
 - **Declarative Traversal** - Express web crawling logic in XPath-like syntax
+- **RAG-Ready Output** - Extract clean, structured JSON hierarchies directly from the graph
 - **Concurrent Execution** - Async-first design with automatic concurrency management
 - **XPath 3.1 Support** - Full XPath 3.1 features including maps and arrays via `elementpath`
 - **Polite Crawling** - Built-in robots.txt respect and adaptive throttling
-- **Extensible Hooks** - Pluggable pipeline for transforming responses and extracted data
-- **Persistent Crawls** - Optional SQLite or Redis backends for persistent crawl results
+- **NEW: Persistent Crawls** - Optional SQLite or Redis backends for persistent crawl results
+- **NEW: TUI** - Interactive terminal interface for testing wxpath expressions
 
 ## Installation
 
 ```bash
 pip install wxpath
-```
 
-For caching/persistence support:
+# Optional extras:
+pip install wxpath[tui]           # Interactive Terminal UI
+pip install wxpath[cache-sqlite]  # Persistence (SQLite)
+pip install wxpath[cache-redis]   # Persistence (Redis)
 
-```bash
-pip install wxpath[cache-sqlite]
-# or
-pip install wxpath[cache-redis]
 ```
 
 ## Core Concepts
+
+The wxpath DSL extends the familiar XPath syntax with additional operators for web traversal and data extraction.
 
 ### The `url(...)` Operator
 
@@ -103,6 +105,7 @@ url('https://quotes.toscrape.com/tag/humor/', follow=//li[@class='next']/a/@href
       'text': (./span[@class='text']/text())[1]
       }
 """
+```
 
 ### XPath 3.1 Maps
 
@@ -124,3 +127,5 @@ url('https://example.com')
 - [Language Design](guide/language-design.md) - Understanding wxpath expressions
 - [API Reference](api/index.md) - Complete API documentation
 - [Examples](examples.md) - More usage examples
+- [NEW: TUI Quickstart](tui/quickstart.md) - Interactive terminal interface
+- [NEW: RAG Integrations](api/integrations/langchain.md) - Integrations with LangChain
