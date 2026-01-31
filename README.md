@@ -7,7 +7,19 @@
 
 ![Wxpath TUI Demo screenshot](docs/assets/images/demo1.jpg)
 
+## Install
+
+Requires Python 3.10+.
+
+```
+pip install wxpath
+# For TUI support
+pip install wxpath[tui]
+```
 ---
+
+
+## What is wxpath?
 
 **wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, wxpath lets you describe what to follow and what to extract in a single expression. **wxpath** executes that expression concurrently, breadth-first-*ish*, and streams results as they are discovered.
 
@@ -48,13 +60,23 @@ Most web scrapers force you to write crawl control flow first, and extraction se
 - **Extraction is expressed inline**
 - **The engine handles scheduling, concurrency, and deduplication**
 
+
+### RAG-Ready Output 
+
+Extract clean, structured JSON hierarchies directly from the graph - feed your LLMs signal, not noise. Refer to [LangChain Integration](https://rodricios.github.io/wxpath/api/integrations/langchain/) for more details.
+
+
+### Deterministic
+
+**wxpath** is deterministic (read: not powered by LLMs). While we can't guarantee the network is stable, we can guarantee the traversal is.
+
 ## Documentation (WIP)
 
 Documentation is now available [here](https://rodricios.github.io/wxpath/).
 
 ## Contents
 
-- [Example](#example)
+- [Example: Knowledge Graph](#example)
 - [Language Design](DESIGN.md)
 - [`url(...)` and `///url(...)` Explained](#url-and-url-explained)
 - [General flow](#general-flow)
@@ -289,7 +311,7 @@ See [TUI Quickstart](https://rodricios.github.io/wxpath/tui/quickstart.md) for m
 
 **wxpath** optionally persists crawl results to a local database. This is especially useful when you're crawling a large number of URLs, and you decide to pause the crawl, change extraction expressions, or otherwise need to restart the crawl. 
 
-**wxpath** supports two backends: sqlite and redis. SQLite is great for small-scale crawls, with a single worker (i.e., `engine.crawler.concurrency == 1`). Redis is great for large-scale crawls, with multiple workers. You will be encounter a warning if you `min(engine.crawler.concurrency, engine.crawler.per_host) > 1` when using the sqlite backend.
+**wxpath** supports two backends: sqlite and redis. SQLite is great for small-scale crawls, with a single worker (i.e., `engine.crawler.concurrency == 1`). Redis is great for large-scale crawls, with multiple workers. You will encounter a warning if `min(engine.crawler.concurrency, engine.crawler.per_host) > 1` when using the sqlite backend.
 
 To use, you must install the appropriate optional dependency:
 
