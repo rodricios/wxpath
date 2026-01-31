@@ -10,8 +10,9 @@ Usage:
     python scripts/update_docs_from_config.py
 """
 import re
-import yaml
 from pathlib import Path
+
+import yaml
 
 
 def load_config(config_path: Path) -> dict:
@@ -28,9 +29,11 @@ def update_mkdocs_yml(mkdocs_path: Path, config: dict):
     # Define replacements
     replacements = {
         'site_name: wxpath': f"site_name: {config['project']['name']}",
-        'site_description: Declarative web crawling with XPath': f"site_description: {config['project']['description']}",
+        'site_description: Declarative web crawling with XPath': 
+            f"site_description: {config['project']['description']}",
         'site_author: Rodrigo Palacios': f"site_author: {config['project']['author']}",
-        'site_url: https://rodricios.github.io/wxpath/': f"site_url: {config['github']['pages_url']}",
+        'site_url: https://rodricios.github.io/wxpath/': 
+            f"site_url: {config['github']['pages_url']}",
         'repo_name: wxpath': f"repo_name: {config['project']['name']}",
         'repo_url: https://github.com/rodricios/wxpath': f"repo_url: {config['github']['url']}",
         'link: https://github.com/rodricios/wxpath': f"link: {config['github']['url']}",

@@ -339,6 +339,7 @@ class WXPathEngine(HookedEngineBase):
                     base_url=task.url,
                     backlink=task.backlink,
                     depth=task.depth,
+                    response=resp
                 )
 
                 elem = await self.post_parse_hooks(elem, task)

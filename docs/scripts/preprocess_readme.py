@@ -12,8 +12,9 @@ If --output is not specified, processes README.md in place.
 """
 import argparse
 import re
-import yaml
 from pathlib import Path
+
+import yaml
 
 
 def load_config(config_path: Path) -> dict:

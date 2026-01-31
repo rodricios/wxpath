@@ -65,6 +65,8 @@ pip install wxpath[cache-redis]
 
 ## Core Concepts
 
+The wxpath DSL extends the familiar XPath syntax with additional operators for web traversal and data extraction.
+
 ### The `url(...)` Operator
 
 The `url(...)` operator fetches content from a URL and returns it as an `lxml.html.HtmlElement` for further XPath processing:
@@ -105,6 +107,7 @@ url('https://quotes.toscrape.com/tag/humor/', follow=//li[@class='next']/a/@href
       'text': (./span[@class='text']/text())[1]
       }
 """
+```
 
 ### XPath 3.1 Maps
 
@@ -126,4 +129,5 @@ url('https://example.com')
 - [Language Design](guide/language-design.md) - Understanding wxpath expressions
 - [API Reference](api/index.md) - Complete API documentation
 - [Examples](examples.md) - More usage examples
-- [TUI Quickstart](tui/quickstart.md) - Interactive terminal interface
+- [NEW: TUI Quickstart](tui/quickstart.md) - Interactive terminal interface
+- [NEW: RAG Integrations](api/integrations/langchain.md) - Integrations with LangChain

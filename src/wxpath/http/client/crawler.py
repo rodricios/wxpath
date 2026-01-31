@@ -282,22 +282,26 @@ class Crawler:
                     else:
                         log.info("[CACHE MISS]", extra={"req.url": req.url, "resp.url": resp.url})
 
+                    _start = time.monotonic()
                     body = await resp.read()
 
-                    latency = time.monotonic() - start
+                    end = time.monotonic()
+                    latency = end - _start
                     self.throttler.record_latency(host, latency)
 
                     if self.retry_policy.should_retry(req, response=resp):
                         await self._retry(req)
                         return None
 
-                    return Response(req, resp.status, body, dict(resp.headers))
+                    return Response(req, resp.status, body, dict(resp.headers),
+                                    request_start=_start, response_end=end)
             except asyncio.CancelledError:
                 # Normal during shutdown / timeout propagation
                 log.debug("cancelled error", extra={"url": req.url})
                 raise
             except Exception as exc:
-                latency = time.monotonic() - start
+                end = time.monotonic()
+                latency = end - start
                 self.throttler.record_latency(host, latency)
 
                 if self.retry_policy.should_retry(req, exception=exc):
@@ -305,7 +309,7 @@ class Crawler:
                     return None
                 
                 log.error("request failed", extra={"url": req.url}, exc_info=exc)
-                return Response(req, 0, b"", error=exc)
+                return Response(req, 0, b"", error=exc, request_start=start, response_end=end)
 
     async def _retry(self, req: Request) -> None:
         """Reschedule a request according to the retry policy."""
