@@ -55,6 +55,10 @@ url('https://quotes.toscrape.com/tag/humor/', follow=//li[@class='next']/a/@href
 """
 ```
 
+###  `url('...', follow=..., depth=...)` - Deep Crawl (starting from root) with depth limit
+
+The `depth` parameter allows you to specify the maximum depth of the crawl. This is useful when you want to limit the depth of the crawl to a specific number of levels.
+
 ## Expression Structure
 
 A wxpath expression is a sequence of **segments**:
@@ -73,7 +77,7 @@ Where:
 | Segment | Description |
 |---------|-------------|
 | `url('...')` | Fetch from literal URL |
-| `url(xpath)` | Fetch from XPath-extracted URLs |
+| `/url(xpath)` | Fetch from XPath-extracted URLs |
 | `//url(xpath)` | One-hop link following |
 | `///url(xpath)` | Recursive deep crawl |
 | XPath | Standard XPath 3.1 expression |

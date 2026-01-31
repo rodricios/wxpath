@@ -42,3 +42,7 @@ pyvenv.cfg
 
 .claude
 .serena
+
+# mkdocs-resize-images: large source images and cache
+assets/images-large
+.resize-hash

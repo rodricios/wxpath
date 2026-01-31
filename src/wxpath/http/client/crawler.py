@@ -71,6 +71,7 @@ class Crawler:
         *,
         headers: dict | None = None,
         proxies: dict | None = None,
+        verify_ssl: bool | None = None,
         retry_policy: RetryPolicy | None = None,
         throttler: AbstractThrottler | None = None,
         auto_throttle_target_concurrency: float = None,
@@ -82,6 +83,9 @@ class Crawler:
 
         self.concurrency = concurrency if concurrency is not None else cfg.concurrency
         self.per_host = per_host if per_host is not None else cfg.per_host
+        self._verify_ssl = verify_ssl if verify_ssl is not None else getattr(
+            cfg, "verify_ssl", True
+        )
 
         timeout = timeout if timeout is not None else cfg.timeout
         self._timeout = aiohttp.ClientTimeout(total=timeout)
@@ -141,7 +145,11 @@ class Crawler:
         """Construct an `aiohttp.ClientSession` with tracing and pooling."""
         trace_config = build_trace_config(self._stats)
         # Need to build the connector as late as possible as it requires the loop
-        connector = aiohttp.TCPConnector(limit=self.concurrency*2, ttl_dns_cache=300)
+        connector = aiohttp.TCPConnector(
+            limit=self.concurrency * 2,
+            ttl_dns_cache=300,
+            ssl=self._verify_ssl,
+        )
         return get_async_session(
             headers=self._headers,
             timeout=self._timeout,

@@ -32,10 +32,12 @@ llm = ["langchain>=1.0.0", "langchain-core>=1.0.0", "langchain-ollama>=1.0.0",
 
 test = ["pytest>=7.0", "pytest-asyncio>=0.23"]
 dev = ["ruff"]
-docs = ["mkdocs>=1.5", "mkdocs-material>=9.0", "mkdocstrings[python]>=0.24", "mkdocs-macros-plugin>=1.0", "pyyaml>=6.0"]
+docs = ["mkdocs>=1.5", "mkdocs-material>=9.0", "mkdocstrings[python]>=0.24", "mkdocs-macros-plugin>=1.0", "mkdocs-resize-images>=1.0", "mkdocs-glightbox", "pyyaml>=6.0"]
+tui = ["textual>=1.0.0", "aiohttp-client-cache>=0.14.0", "aiohttp-client-cache[sqlite]"]
 
 [project.scripts]
 wxpath = "wxpath.cli:main"
+wxpath-tui = "wxpath.tui:main"
 
 [tool.pytest.ini_options]
 minversion = "6.0"

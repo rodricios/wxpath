@@ -19,10 +19,12 @@ from wxpath.core.parser import (
     Binary,
     Call,
     ContextItem,
+    Depth,
     Segment,
     Segments,
     String,
     Url,
+    UrlLiteral,
     UrlCrawl,
     Xpath,
 )
@@ -78,7 +80,10 @@ def get_operator(
 
 
 @register('url', (String,))
+@register('url', (String, Depth))
 @register('url', (String, Xpath))
+@register('url', (String, Depth, Xpath))
+@register('url', (String, Xpath, Depth))
 def _handle_url_str_lit(curr_elem: html.HtmlElement, 
                         curr_segments: list[Url | Xpath], 
                         curr_depth: int, **kwargs) -> Iterable[Intent]:
@@ -87,9 +92,12 @@ def _handle_url_str_lit(curr_elem: html.HtmlElement,
 
     next_segments = curr_segments[1:]
 
-    if len(url_call.args) == 2:
+    # NOTE: Expects parser to produce UrlCrawl node in expressions
+    # that look like `url('...', follow=//a/@href)`
+    if isinstance(url_call, UrlCrawl):
+        xpath_arg = [arg for arg in url_call.args if isinstance(arg, Xpath)][0]
         _segments = [
-            UrlCrawl('///url', [url_call.args[1], url_call.args[0].value])
+            UrlCrawl('///url', [xpath_arg, url_call.args[0].value])
         ] + next_segments
         
         yield CrawlIntent(url=url_call.args[0].value, next_segments=_segments)

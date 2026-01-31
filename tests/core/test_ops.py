@@ -119,7 +119,9 @@ class TestHandleUrlStringLiteral:
     def test_url_string_literal_with_follow_arg(self):
         elem = html.fromstring("<html><body></body></html>", base_url="http://test/")
         # url('http://example.com', follow=//a/@href)
-        url_node = Url("url", [String("http://example.com"), Xpath("//a/@href")])
+        # NOTE: instantiating this as a Url() node should be the same as UrlCrawl, but alas,
+        #       our compiler/runtime/op-handler doesn't know how to resolve it yet
+        url_node = UrlCrawl("url", [String("http://example.com"), Xpath("//a/@href")])
         segments = Segments([url_node])
 
         op = get_operator(url_node)
