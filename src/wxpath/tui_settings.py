@@ -35,7 +35,8 @@ def get_tui_settings_path() -> Path:
     return _config_dir() / "tui_settings.json"
 
 
-# Schema: one dict per setting. Keys: key (file/API), label (display), type, default, optional min/max, help.
+# Schema: one dict per setting. 
+# Keys: key (file/API), label (display), type, default, optional min/max, help.
 # Defaults are taken from CRAWLER_SETTINGS so there is a single source of truth for built-in values.
 TUISettingsSchema: list[dict[str, Any]] = [
     {
@@ -99,7 +100,7 @@ def _validate_value(key: str, value: Any, schema: list[dict[str, Any]]) -> Any:
         try:
             v = int(value)
         except (TypeError, ValueError):
-            raise ValueError(f"{key}: expected integer, got {type(value).__name__}")
+            raise ValueError(f"{key}: expected integer, got {type(value).__name__}") from None
         min_v = entry.get("min")
         max_v = entry.get("max")
         if min_v is not None and v < min_v:

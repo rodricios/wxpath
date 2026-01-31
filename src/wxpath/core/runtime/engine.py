@@ -18,7 +18,7 @@ from wxpath.core.models import (
     ProcessIntent,
 )
 from wxpath.core.ops import get_operator
-from wxpath.core.parser import Binary, Depth, Segment, Segments, UrlCrawl, UrlLiteral
+from wxpath.core.parser import Binary, Depth, Segment, Segments
 from wxpath.core.runtime.helpers import parse_html
 from wxpath.hooks.registry import FetchContext, get_hooks
 from wxpath.http.client.crawler import Crawler

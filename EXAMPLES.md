@@ -198,7 +198,7 @@ url('https://engineering.nd.edu/faculty/', follow=//div[@class='nav-links']//a[c
         'name': (//h1[@class='page-title']/text())[1] ! string(.),
         'url': string(base-uri(.)),
         'title': (//h2[@class='title-department']/text())[1] ! string(.),
-        'email': (//a[contains(@href, 'mailto:')]/@href)[1] ! string(.),
+        'email': (//a[contains(@href, 'mailto:')]/@href)[1] ! string(.)
     }
 """
 

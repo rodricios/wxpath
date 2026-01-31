@@ -1,12 +1,7 @@
 # wxpath TUI - Interactive Expression Testing
 
-```
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                    wxpath TUI - Interactive Testing                          ║
-║                   Architected for Elegance & Precision                       ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-```
 
+> NOTE: I highly recommended you enable caching (Ctrl+L) for faster execution, and set **depth** (i.e., `url('...', depth=...)`) for capped crawls to be polite to the servers you are crawling.
 
 ## ✨ Features
 
@@ -24,6 +19,7 @@
 - **Error Messages**: Clear validation and execution feedback  
 - **Waiting State**: Shows when expression is incomplete or invalid
 - **Streaming Results**: Live updates as data arrives (max 10 items shown)
+- **Cancel Crawl**: Press **Escape** during a run to stop the crawl; results already received stay in the table
 
 ## 🚀 Installation
 
@@ -56,6 +52,7 @@ python -m wxpath.tui
 | Key | Action | Description |
 |-----|--------|-------------|
 | `Ctrl+R` or `F5` | Execute | Run the current expression |
+| `Escape` | Cancel Crawl | Stop the running crawl; partial results are kept |
 | `Ctrl+E` | Export | Export table data (CSV or JSON) |
 | `Ctrl+C` | Clear | Clear the output panel |
 | `Ctrl+H` | Headers | Configure HTTP headers (JSON) |

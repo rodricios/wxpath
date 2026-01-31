@@ -26,25 +26,31 @@ from typing import Any, Iterable
 
 from elementpath.xpath_tokens import XPathMap
 from lxml.html import HtmlElement, tostring
-from rich.console import Group, RenderableType
-from rich.table import Table
-from rich.text import Text
+from rich.console import RenderableType
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Footer, Header, Input, RadioSet, Static, Switch, TextArea
+from textual.widgets import (
+    Button,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Static,
+    Switch,
+    TextArea,
+)
 
-from wxpath.core import parser
 from wxpath.core.runtime.engine import WXPathEngine
 from wxpath.hooks import registry
 from wxpath.hooks.builtin import SerializeXPathMapAndNodeHook
 from wxpath.settings import SETTINGS
 from wxpath.tui_settings import (
+    TUISettingsSchema,
     load_tui_settings,
     save_tui_settings,
-    TUISettingsSchema,
     validate_tui_settings,
 )
 
@@ -111,7 +117,8 @@ class HeadersScreen(ModalScreen):
         with Vertical(id="headers-dialog"):
             yield Static("HTTP Headers Configuration", id="headers-title")
             yield Static(
-                "Enter headers as JSON (one per line or as object). Press Ctrl+S to save, Escape to cancel.",
+                ("Enter headers as JSON (one per line or as object)."
+                 " Press Ctrl+S to save, Escape to cancel."),
                 id="headers-help"
             )
             
@@ -279,7 +286,7 @@ class SettingsScreen(ModalScreen):
         result = {}
         for entry in TUISettingsSchema:
             key = entry["key"]
-            typ = entry["type"]
+            # typ = entry["type"]
             node = self.query_one(f"#setting-{key}")
             if isinstance(node, Input):
                 raw = node.value.strip()
@@ -549,6 +556,7 @@ class WXPathTUI(App):
     BINDINGS = [
         ("ctrl+q", "quit", "Quit"),
         ("ctrl+r", "execute", "Execute"),
+        ("escape", "cancel_crawl", "Cancel Crawl"),
         ("ctrl+c", "clear", "Clear"),
         ("ctrl+d", "clear_debug", "Clear Debug"),
         ("ctrl+shift+d", "toggle_debug", "Toggle Debug"),
@@ -576,6 +584,7 @@ class WXPathTUI(App):
         registry.register(SerializeXPathMapAndNodeHook)
         # self.engine = WXPathEngine()
         self._executing = False
+        self._crawl_worker = None  # Worker for current crawl; used for cancellation
         self._last_sort_column: str | None = None
         self._last_sort_reverse = False
         # Don't set cache_enabled here - let on_mount handle it
@@ -617,11 +626,12 @@ class WXPathTUI(App):
             "[cyan]Quick Start:[/cyan]\n"
             "  • Edit the expression above\n"
             "  • Press [bold]Ctrl+R[/bold] or [bold]F5[/bold] to execute\n"
+            "  • Press [bold]Escape[/bold] to cancel a running crawl\n"
             "  • Press [bold]Ctrl+E[/bold] to export table (CSV/JSON)\n"
             "  • Press [bold]Ctrl+C[/bold] to clear output\n"
             "  • Press [bold]Ctrl+Shift+D[/bold] to toggle debug panel\n"
             "  • Press [bold]Ctrl+H[/bold] to configure HTTP headers\n"
-            "  • Press [bold]Ctrl+Shift+S[/bold] to edit persistent settings (concurrency, robots)\n"
+            "  • Press [bold]Ctrl+Shift+S[/bold] to edit persistent settings (concurrency, robots)\n" # noqa: E501
             "  • Press [bold]Ctrl+L[/bold] to toggle HTTP caching\n"
             "  • Use [bold]arrow keys[/bold] or [bold]scroll[/bold] to view results\n\n"
             "[cyan]Example expressions:[/cyan]\n"
@@ -858,14 +868,17 @@ class WXPathTUI(App):
         expression = event.text_area.text.strip()
         
         if not expression:
-            self._update_output("[dim]Waiting - Enter an expression and press Ctrl+R or F5 to execute[/dim]")
+            self._update_output("[dim]Waiting - Enter an expression and press Ctrl+R "
+                                "or F5 to execute[/dim]")
             return
         
         # Show validation status
         if not self._validate_expression(expression):
-            self._update_output("[yellow]Waiting - Expression incomplete (check parentheses, braces, brackets, quotes)[/yellow]")
+            self._update_output("[yellow]Waiting - Expression incomplete (check parentheses,"
+                                " braces, brackets, quotes)[/yellow]")
         else:
-            self._update_output("[green]Expression appears valid - Press Ctrl+R or F5 to execute[/green]")
+            self._update_output("[green]Expression appears valid - Press Ctrl+R or F5 to execute"
+                                "[/green]")
     
     def _prep_row(self, result: XPathMap | dict, keys: list[str]) -> list[str]:
         """Prepare a row for table display from a dict-like result.
@@ -957,13 +970,18 @@ class WXPathTUI(App):
                 # Add row with unique key for efficient updates
                 data_table.add_row(*row, key=str(count))
 
+        except asyncio.CancelledError:
+            # Keep partial results; append status without clearing the panel
+            panel = self.query_one("#output-panel", OutputPanel)
+            if count > 0:
+                panel.append(f"[yellow]Crawl cancelled — {count} partial result(s) shown.[/yellow]")
+            else:
+                panel.append("[yellow]Crawl cancelled.[/yellow]")
+            self._debug("Crawl cancelled by user.")
+            raise
         except asyncio.TimeoutError:
             if count > 0:
-                # Use Group to combine message with formatted results (which might be a Table)
-                timeout_msg = Text(f"Timeout after 60s - showing {count} partial results\n\n", style="yellow")
-                # formatted_results = self._format_results(results)
-                # self._update_output(Group(timeout_msg, formatted_results))
-                # self._update_output(timeout_msg)
+                pass
             else:
                 self._update_output(
                     "[yellow]Timeout after 60s - no results returned[/yellow]\n"
@@ -1005,17 +1023,28 @@ class WXPathTUI(App):
                 return
             
             # # Parse the expression - useful for deducing if to display table
-            # parsed = parser.parse(expression) 
-            self.collect_results(expression)
+            # parsed = parser.parse(expression)
+            self._crawl_worker = self.collect_results(expression)
         except SyntaxError as e:
             self._update_output(f"[yellow]Waiting - Syntax Error:[/yellow] {e}")
+            self._executing = False
         except ValueError as e:
             self._update_output(f"[yellow]Waiting - Validation Error:[/yellow] {e}")
+            self._executing = False
         except Exception as e:
             self._update_output(f"[red]Error:[/red] {type(e).__name__}: {e}")
-        finally:
             self._executing = False
-            self._debug("Execution finished")
+        # Do not set _executing = False here: execution runs in the collect_results
+        # coroutine; only that coroutine's finally block should clear the flag.
+
+    def action_cancel_crawl(self) -> None:
+        """Cancel the currently running crawl (if any)."""
+        self._debug(f"Cancelling crawl... executing: {self._executing}, "
+                    f"crawl_worker.name: {getattr(self._crawl_worker, 'name', None)}, "
+                    f"crawl_worker.is_running: {getattr(self._crawl_worker, 'is_running', False)}")
+        if self._executing and self._crawl_worker and self._crawl_worker.is_running:
+            self._debug("Cancel requested for crawl.")
+            self._crawl_worker.cancel()
     
     def _validate_expression(self, expression: str) -> bool:
         """Validate if expression is complete and well-formed.

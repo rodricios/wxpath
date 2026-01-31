@@ -8,7 +8,6 @@ from wxpath.core.parser import (
     Depth,
     Name,
     Number,
-    Integer,
     Parser,
     Segments,
     String,
@@ -16,7 +15,6 @@ from wxpath.core.parser import (
     Url,
     UrlCrawl,
     UrlLiteral,
-    UrlQuery,
     Wxpath,
     Xpath,
     find_wxpath_boundary,
@@ -433,7 +431,8 @@ class TestComplexExpressions:
 
     def test_url_with_follow_and_depth_arguments(self):
         """Test url() with follow and depth arguments"""
-        result = parse("url('http://example.com', follow=//a/@href[contains(., 'example')], depth=2)")
+        result = parse("url('http://example.com', "
+                       "follow=//a/@href[contains(., 'example')], depth=2)")
         assert isinstance(result, Segments)
         assert len(result) == 1
         url_node = result[0]

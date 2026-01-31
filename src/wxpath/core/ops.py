@@ -24,7 +24,6 @@ from wxpath.core.parser import (
     Segments,
     String,
     Url,
-    UrlLiteral,
     UrlCrawl,
     Xpath,
 )

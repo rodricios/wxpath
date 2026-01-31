@@ -2,7 +2,10 @@
 
 **Get started with the wxpath TUI in 5 minutes!**
 
+> NOTE: I highly recommended you enable caching (Ctrl+L) for faster execution, and set `url('...', depth=...)` for capped crawls to be polite to the servers you are crawling.
 
+
+## Step 0: Preview
 
   ![Wxpath TUI Demo screenshot](../assets/images/demo1.jpg)
   <figcaption markdown="span">
@@ -66,6 +69,7 @@ url('https://quotes.toscrape.com')
 | Key | Action |
 |-----|--------|
 | `Ctrl+R` or `F5` | Execute expression |
+| `Escape` | Cancel crawl (keep partial results) |
 | `Ctrl+C` | Clear output |
 | `Ctrl+Q` | Quit |
 
@@ -151,12 +155,16 @@ url('https://example.com')//article/map {
 }
 ```
 
-### 3. Test Incrementally
+### 3. Cancel Long Crawls
+- Press **Escape** to stop a running crawl at any time
+- Partial results stay in the table; a status line shows how many were received
+
+### 4. Test Incrementally
 - Execute after each change
 - Verify results before adding more
 - Use Ctrl+C to clear between tests
 
-### 4. Watch Validation
+### 5. Watch Validation
 - Green = ready to execute
 - Yellow = incomplete or error
 - Bottom panel shows helpful messages
@@ -192,6 +200,7 @@ url('https://example.com')//article/map {
 │                                                         │
 │ KEYBOARD                                                │
 │   Ctrl+R, F5              Execute expression            │
+│   Escape                  Cancel crawl (keep results)   │
 │   Ctrl+C                  Clear output                  │
 │   Ctrl+Q                  Quit                          │
 │                                                         │
