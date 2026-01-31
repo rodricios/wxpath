@@ -48,6 +48,11 @@ def main():
         default=True
     )
     arg_parser.add_argument(
+        "--insecure",
+        action="store_true",
+        help="Disable SSL certificate verification (use for sites with broken chains)",
+    )
+    arg_parser.add_argument(
         "--cache",
         action="store_true",
         help="Use cache",
@@ -112,6 +117,7 @@ def main():
         concurrency=args.concurrency,
         per_host=args.concurrency_per_host,
         respect_robots=args.respect_robots,
+        verify_ssl=not args.insecure,
         headers=custom_headers
     )
     engine = WXPathEngine(crawler=crawler)

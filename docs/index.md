@@ -24,8 +24,9 @@
 # Declarative web graph traversal with XPath
 
 > **Warning:** pre-1.0.0 - APIs and contracts may change.
+> NEW: [TUI](tui/quickstart.md) - Interactive terminal interface (powered by Textual) for testing wxpath expressions and extracting data.
 
-**wxpath** is a declarative web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, wxpath lets you describe what to follow and what to extract in a single expression.
+**wxpath** is a declarative, deterministic (read: not powered by LLMs), async web crawler where traversal is expressed directly in XPath. Instead of writing imperative crawl loops, wxpath lets you describe what to follow and what to extract in a single expression.
 
 ## Quick Start
 
@@ -45,7 +46,8 @@ for link in wxpath.wxpath_async_blocking_iter(expr):
 - **XPath 3.1 Support** - Full XPath 3.1 features including maps and arrays via `elementpath`
 - **Polite Crawling** - Built-in robots.txt respect and adaptive throttling
 - **Extensible Hooks** - Pluggable pipeline for transforming responses and extracted data
-- **Persistent Crawls** - Optional SQLite or Redis backends for persistent crawl results
+- **NEW: Persistent Crawls** - Optional SQLite or Redis backends for persistent crawl results
+- **NEW: TUI** - Interactive terminal interface for testing wxpath expressions
 
 ## Installation
 
@@ -124,3 +126,4 @@ url('https://example.com')
 - [Language Design](guide/language-design.md) - Understanding wxpath expressions
 - [API Reference](api/index.md) - Complete API documentation
 - [Examples](examples.md) - More usage examples
+- [TUI Quickstart](tui/quickstart.md) - Interactive terminal interface

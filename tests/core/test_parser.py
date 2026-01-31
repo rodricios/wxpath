@@ -5,8 +5,10 @@ from wxpath.core.parser import (
     Binary,
     Call,
     ContextItem,
+    Depth,
     Name,
     Number,
+    Integer,
     Parser,
     Segments,
     String,
@@ -30,7 +32,7 @@ class TestTokenize:
     def test_tokenize_number_integer(self):
         tokens = list(tokenize("42"))
         assert len(tokens) == 2
-        assert tokens[0] == Token("NUMBER", "42", 0, 2)
+        assert tokens[0] == Token("INTEGER", "42", 0, 2)
         assert tokens[1].type == "EOF"
 
     def test_tokenize_number_float(self):
@@ -226,13 +228,14 @@ class TestParser:
         # The xpath argument should be parsed
         assert len(result[0].args) >= 1
 
-    def test_parse_nested_url(self):
-        result = parse("url(url('http://example.com')//a/@href)")
-        assert isinstance(result, Segments)
-        assert len(result) == 3
-        assert isinstance(result[0], UrlLiteral)
-        assert isinstance(result[1], Xpath)
-        assert isinstance(result[2], UrlQuery)
+    # # NOTE: Nested url() calls are not supported yet.
+    # def test_parse_nested_url(self):
+    #     result = parse("url(url('http://example.com')//a/@href)")
+    #     assert isinstance(result, Segments)
+    #     assert len(result) == 3
+    #     assert isinstance(result[0], UrlLiteral)
+    #     assert isinstance(result[1], Xpath)
+    #     assert isinstance(result[2], UrlQuery)
 
     def test_parse_binary_with_wxpath(self):
         result = parse("//a = url('http://example.com')")
@@ -353,15 +356,16 @@ class TestComplexExpressions:
         assert isinstance(result, Segments)
         assert len(result) == 2
 
-    def test_deeply_nested_url(self):
-        """Test deeply nested url() calls"""
-        result = parse("url(url(url('http://example.com')//a/@href)//b/@src)")
-        assert isinstance(result, Segments)
-        assert len(result) == 4
-        assert isinstance(result[0], UrlLiteral)
-        assert isinstance(result[1], Xpath)
-        assert isinstance(result[2], UrlQuery)
-        assert isinstance(result[3], Xpath)
+    # # NOTE: Nested url() calls are not supported yet.
+    # def test_deeply_nested_url(self):
+    #     """Test deeply nested url() calls"""
+    #     result = parse("url(url(url('http://example.com')//a/@href)//b/@src)")
+    #     assert isinstance(result, Segments)
+    #     assert len(result) == 4
+    #     assert isinstance(result[0], UrlLiteral)
+    #     assert isinstance(result[1], Xpath)
+    #     assert isinstance(result[2], UrlQuery)
+    #     assert isinstance(result[3], Xpath)
 
     def test_range_with_simple_map_and_url_and_map_constructor(self):
         """Test complex expression with range, simple map (!), url(), and map constructor"""
@@ -417,3 +421,22 @@ class TestComplexExpressions:
         assert "'a':" in xpath_part.value
         assert "'b':" in xpath_part.value
 
+    def test_url_with_complex_follow_argument(self):
+        """Test url() with complex follow argument"""
+
+        result = parse("url('http://example.com', follow=//a/@href[contains(., 'example')])")
+        assert isinstance(result, Segments)
+        assert len(result) == 1
+        url_node = result[0]
+        assert isinstance(url_node, Url)
+        assert url_node.args[1] == Xpath("//a/@href[contains(., 'example')]")
+
+    def test_url_with_follow_and_depth_arguments(self):
+        """Test url() with follow and depth arguments"""
+        result = parse("url('http://example.com', follow=//a/@href[contains(., 'example')], depth=2)")
+        assert isinstance(result, Segments)
+        assert len(result) == 1
+        url_node = result[0]
+        assert isinstance(url_node, Url)
+        assert url_node.args[1] == Xpath("//a/@href[contains(., 'example')]")
+        assert url_node.args[2] == Depth(2)

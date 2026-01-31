@@ -19,3 +19,10 @@
 ## 0.4.1
 - Add `yield_errors` runtime option - return error dicts for failed requests
 - Fix cache backend: Redis backend no longer requires SQLite backend
+
+## 0.5.0
+- Add `depth` parameter to `url()` operator
+- Add two-panel TUI for interactive testing and exporting
+  - Settings for concurrency, per-host, respect robots, verify_ssl and headers
+  - Persistent crawls with SQLite
+  - Export to CSV, JSON

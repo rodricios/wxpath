@@ -36,8 +36,16 @@ theme:
 
 dev_addr: 127.0.0.1:8000
 
+# Resize workflow: put large images in docs/assets/images-large/;
+# the plugin resizes them and writes to docs/assets/images/.
 plugins:
   - search
+  - glightbox
+  - resize-images:
+      source-dir: images-large
+      target-dir: images
+      size: [800, 600]
+      enable_cache: true
   - macros:
       module_name: docs/macros
   - mkdocstrings:
@@ -71,6 +79,9 @@ nav:
       - Configuration: guide/configuration.md
       - Hooks: guide/hooks.md
       # - Caching: guide/caching.md
+  - TUI:
+    - Quickstart: tui/quickstart.md
+    - Overview: tui/index.md
   - API Reference:
       - Overview: api/index.md
       - Core:
