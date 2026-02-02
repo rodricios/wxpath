@@ -14,7 +14,7 @@ Requires Python 3.10+.
 ```
 pip install wxpath
 # For TUI support
-pip install wxpath[tui]
+pip install "wxpath[tui]"
 ```
 ---
 
