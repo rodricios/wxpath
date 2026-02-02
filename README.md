@@ -3,7 +3,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/) [![Documentation Status](https://img.shields.io/badge/documentation-green.svg)](https://rodricios.github.io/wxpath)
 
 
-> NEW: [TUI](https://rodricios.github.io/wxpath/tui/quickstart.md) - Interactive terminal interface (powered by Textual) for testing wxpath expressions and exporting data.
+> NEW: [TUI](https://rodricios.github.io/wxpath/tui/quickstart) - Interactive terminal interface (powered by Textual) for testing wxpath expressions and exporting data.
 
 ![Wxpath TUI Demo screenshot](docs/assets/images/demo1.jpg)
 
@@ -305,7 +305,7 @@ Command line options:
 
 **wxpath** provides a terminal interface (TUI) for interactive expression testing and data extraction.
 
-See [TUI Quickstart](https://rodricios.github.io/wxpath/tui/quickstart.md) for more details.
+See [TUI Quickstart](https://rodricios.github.io/wxpath/tui/quickstart) for more details.
 
 ## Persistence and Caching
 
