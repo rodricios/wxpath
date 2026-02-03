@@ -13,8 +13,10 @@ Requires Python 3.10+.
 
 ```
 pip install wxpath
-# For TUI support
+# For TUI support:
 pip install "wxpath[tui]"
+# Immediately launch the TUI via uv:
+uvx --from "wxpath[tui]" wxpath-tui
 ```
 ---
 
