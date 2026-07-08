@@ -3,6 +3,7 @@ import urllib.parse
 import elementpath
 from elementpath import XPathContext, XPathFunction
 from elementpath.xpath3 import XPath3Parser
+from elementpath.xpath_nodes import XPathNode
 from lxml import etree, html
 
 from wxpath.http.client import Response as Response
@@ -77,19 +78,23 @@ parser.set_element_class_lookup(lookup)
 html_parser_with_xpath3 = parser
 html.HtmlElement.xpath3 = XPath3Element.xpath3
 
-# --- WXPATH functions ---
 WX_NAMESPACE = "http://wxpath.dev/ns"
 
 class WXPathParser(XPath3Parser):
     """Custom parser that includes wxpath-specific functions."""
     pass
 
-# 2. Register the namespace mapping globally on the parser class
 WXPathParser.DEFAULT_NAMESPACES['wx'] = WX_NAMESPACE
 
-# 2. Helper to register functions easily
 def register_wxpath_function(name, nargs=None, **kwargs):
-    """Registers a function token on the custom parser."""
+    """Registers a function token on the custom parser.
+
+    Args:
+        name: Function name, optionally prefixed (e.g. 'wx:my-func').
+        nargs: Arity: an int for fixed arity, or (min_args, max_args) for
+            variable arity. Use None for max_args to allow unbounded args,
+            e.g. nargs=(1, None) for "at least one argument".
+    """
     
     # Define the token on the class (this registers the symbol)
     # Check if this is a prefixed function (e.g. 'wx:depth')
@@ -132,6 +137,7 @@ def _get_root(context: XPathContext):
     return context.item.elem.getroottree().getroot()
 
 
+# --- WXPATH functions ---
 @register_wxpath_function('wx:depth', nargs=0)
 def wx_depth(_: XPathFunction, context: XPathContext):
     if context is None:
@@ -231,7 +237,7 @@ def wx_internal_links(_: XPathFunction, context: XPathContext):
     if context is None:
         raise XPathContextRequired
 
-    item = context.item.elem
+    item = node_to_lxml(context.item)
     if item is None:
         return ''
     
@@ -271,3 +277,84 @@ def wx_main_article_text(_: XPathFunction, context: XPathContext):
     except Exception:
         log.exception('Failed to extract main article text')
         return ''
+
+@register_wxpath_function('wx:contains-all', nargs=(1, None))
+def wx_contains_all(self: XPathFunction, context: XPathContext):
+    """Returns true if the first argument contains all subsequent arguments."""
+    arg0 = self.get_argument(context, 0)
+    # Get string value (handles nodes, strings, numbers appropriately)
+    haystack = self.string_value(arg0) if hasattr(self, 'string_value') else str(arg0 or '')
+    
+    for i in range(1, self.arity):
+        arg = self.get_argument(context, i)
+        needle = self.string_value(arg) if hasattr(self, 'string_value') else str(arg or '')
+        if needle not in haystack:
+            return False
+    
+    return True
+
+
+@register_wxpath_function('wx:contains-all-i', nargs=(1, None))
+def wx_contains_all_i(self: XPathFunction, context: XPathContext):
+    """Returns true if the first argument contains all subsequent arguments."""
+    arg0 = self.get_argument(context, 0)
+    # Get string value (handles nodes, strings, numbers appropriately)
+    haystack = (self.string_value(arg0).lower() if hasattr(self, 'string_value') else 
+                str(arg0 or '').lower())
+    
+    for i in range(1, self.arity):
+        arg = self.get_argument(context, i)
+        needle = (self.string_value(arg).lower() if hasattr(self, 'string_value') else 
+                 str(arg or '').lower())
+        if needle not in haystack:
+            return False
+    
+    return True
+
+
+@register_wxpath_function('wx:contains-any', nargs=(1, None))
+def wx_contains_any(self: XPathFunction, context: XPathContext):
+    """Returns true if the first argument contains any of the subsequent arguments."""
+    arg0 = self.get_argument(context, 0)
+    # Get string value (handles nodes, strings, numbers appropriately)
+    haystack = self.string_value(arg0) if hasattr(self, 'string_value') else str(arg0 or '')
+    
+    for i in range(1, self.arity):
+        arg = self.get_argument(context, i)
+        needle = self.string_value(arg) if hasattr(self, 'string_value') else str(arg or '')
+        if needle in haystack:
+            return True
+    
+    return False
+
+
+@register_wxpath_function('wx:contains-any-i', nargs=(1, None))
+def wx_contains_any_i(self: XPathFunction, context: XPathContext):
+    """Returns true if the first argument contains any of the subsequent arguments."""
+    arg0 = self.get_argument(context, 0)
+    # Get string value (handles nodes, strings, numbers appropriately)
+    haystack = (self.string_value(arg0).lower() if hasattr(self, 'string_value') else 
+                str(arg0 or '').lower())
+    
+    for i in range(1, self.arity):
+        arg = self.get_argument(context, i)
+        needle = (self.string_value(arg).lower() if hasattr(self, 'string_value') else 
+                 str(arg or '').lower())
+        if needle in haystack:
+            return True
+    
+    return False
+
+
+def node_to_lxml(node: XPathNode) -> html.HtmlElement:
+    """Get the lxml element most closely associated with this XPathNode."""
+    if hasattr(node, 'elem') and node.node_kind == 'element':
+        return node.elem
+    if node.node_kind == 'attribute' and node.parent is not None:
+        return node.parent.elem
+    if node.node_kind == 'document':
+        return node.getroot().elem
+    if (node.node_kind in ('text', 'comment', 'processing-instruction') and 
+        getattr(node, 'parent', None) is not None):
+        return node.parent.elem
+    return node.obj  # fallback (e.g. CommentNode, PI)

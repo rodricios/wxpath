@@ -77,7 +77,7 @@ class Crawler:
         auto_throttle_target_concurrency: float = None,
         auto_throttle_start_delay: float = None,
         auto_throttle_max_delay: float = None,
-        respect_robots: bool = True,
+        respect_robots: bool | None = None,
     ):
         cfg = CRAWLER_SETTINGS
 

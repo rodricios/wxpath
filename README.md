@@ -512,4 +512,4 @@ However, pre-1.0.0 follows `0.<MAJOR>.<MINOR|PATCH>`.
 
 ## License
 
-MIT
+AGPL-3.0

@@ -2,11 +2,28 @@ from typing import Callable, Iterable
 from urllib.parse import urljoin
 
 import elementpath
+from elementpath import (
+    ElementPathError,
+    ElementPathZeroDivisionError,
+    MissingContextError,
+)
+from elementpath import (
+    ElementPathSyntaxError as EPSyntaxError,
+)
+from elementpath import (
+    ElementPathTypeError as EPTypeError,
+)
 from elementpath.datatypes import AnyAtomicType
 from elementpath.xpath3 import XPath3Parser
 from lxml import html
 
 from wxpath.core.dom import get_absolute_links_from_elem_and_xpath
+from wxpath.core.exceptions import (
+    XPathEvaluationError,
+    XPathRuntimeError,
+    XPathSyntaxError,
+    XPathTypeError,
+)
 from wxpath.core.models import (
     CrawlIntent,
     DataIntent,
@@ -87,7 +104,7 @@ def _handle_url_str_lit(curr_elem: html.HtmlElement,
                         curr_segments: list[Url | Xpath], 
                         curr_depth: int, **kwargs) -> Iterable[Intent]:
     """Handle `url('<literal>')` segments and optional follow xpath."""
-    url_call = curr_segments[0] # type: Url
+    url_call: Url = curr_segments[0]
 
     next_segments = curr_segments[1:]
 
@@ -111,7 +128,7 @@ def _handle_xpath(curr_elem: html.HtmlElement,
                   curr_depth: int,
                   **kwargs) -> Iterable[Intent]:
     """Execute an xpath step and yield data or chained processing intents."""
-    xpath_node = curr_segments[0] # type: Xpath
+    xpath_node: Xpath = curr_segments[0]
 
     expr = xpath_node.value
 
@@ -119,7 +136,52 @@ def _handle_xpath(curr_elem: html.HtmlElement,
         raise ValueError("Element must be provided when path_expr does not start with 'url()'.")
     base_url = getattr(curr_elem, 'base_url', None)
     log.debug("base url", extra={"depth": curr_depth, "op": 'xpath', "base_url": base_url})
-    elems = curr_elem.xpath3(expr)
+    
+    try:
+        elems = curr_elem.xpath3(expr)
+    except EPSyntaxError as e:
+        # Parse the error message to extract line/column if available
+        # elementpath format: "... at line 1, column 7: [err:XPST0003] ..."
+        raise XPathSyntaxError(
+            f"Invalid XPath syntax: {str(e).split(': ', 1)[-1]}",
+            xpath=expr,
+            base_url=base_url,
+            element_tag=curr_elem.tag,
+            original_error=e
+        ) from e
+    except EPTypeError as e:
+        raise XPathTypeError(
+            f"XPath type error: {str(e).split(': ', 1)[-1]}",
+            xpath=expr,
+            base_url=base_url,
+            element_tag=curr_elem.tag,
+            original_error=e
+        ) from e
+    except ElementPathZeroDivisionError as e:
+        raise XPathRuntimeError(
+            f"Division by zero in XPath: {expr}",
+            xpath=expr,
+            base_url=base_url,
+            element_tag=curr_elem.tag,
+            original_error=e
+        ) from e
+    except MissingContextError as e:
+        raise XPathRuntimeError(
+            f"XPath requires context but none provided: {expr}",
+            xpath=expr,
+            base_url=base_url,
+            element_tag=curr_elem.tag,
+            original_error=e
+        ) from e
+    except ElementPathError as e:
+        # Catch-all for other elementpath errors
+        raise XPathEvaluationError(
+            f"XPath evaluation failed: {e}",
+            xpath=expr,
+            base_url=base_url,
+            element_tag=curr_elem.tag,
+            original_error=e
+        ) from e
     
     next_segments = curr_segments[1:]
     for elem in elems:
@@ -256,12 +318,37 @@ def _handle_binary(curr_elem: html.HtmlElement | str,
     base_url = getattr(curr_elem, 'base_url', None)
     next_segments = right
 
-    results = elementpath.select(
-        curr_elem,
-        left.value,
-        parser=XPath3Parser,
-        item='' if curr_elem is None else None
-    )
+    try:
+        results = elementpath.select(
+            curr_elem,
+            left.value,
+            parser=XPath3Parser,
+            item='' if curr_elem is None else None
+        )
+    except EPSyntaxError as e:
+        raise XPathSyntaxError(
+            f"Invalid XPath in binary operation: {str(e).split(': ', 1)[-1]}",
+            xpath=left.value,
+            base_url=base_url,
+            element_tag=getattr(curr_elem, 'tag', None),
+            original_error=e
+        ) from e
+    except EPTypeError as e:
+        raise XPathTypeError(
+            f"XPath type error in binary operation: {str(e).split(': ', 1)[-1]}",
+            xpath=left.value,
+            base_url=base_url,
+            element_tag=getattr(curr_elem, 'tag', None),
+            original_error=e
+        ) from e
+    except ElementPathError as e:
+        raise XPathEvaluationError(
+            f"XPath evaluation failed in binary operation: {e}",
+            xpath=left.value,
+            base_url=base_url,
+            element_tag=getattr(curr_elem, 'tag', None),
+            original_error=e
+        ) from e
 
     if isinstance(results, AnyAtomicType):
         results = [results]

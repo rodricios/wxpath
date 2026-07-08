@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from tests.utils import MockCrawler, MockCrawlerWithErrors
+from wxpath.core.models import CrawlStrategy
 from wxpath.core.runtime import engine
 from wxpath.core.runtime.engine import WXPathEngine
 from wxpath.http.client.request import Request
@@ -958,9 +959,9 @@ async def test_yield_errors_network_error(monkeypatch):
         ),
     )
 
-    eng = WXPathEngine()
+    eng = WXPathEngine(yield_errors=True)
     results = await _collect_async(
-        eng.run(f"url('{target_url}')", max_depth=0, yield_errors=True)
+        eng.run(f"url('{target_url}')", max_depth=0)
     )
 
     assert len(results) == 1
@@ -990,9 +991,9 @@ async def test_yield_errors_network_error_disabled(monkeypatch):
         ),
     )
 
-    eng = WXPathEngine()
+    eng = WXPathEngine(yield_errors=False)
     results = await _collect_async(
-        eng.run(f"url('{target_url}')", max_depth=0, yield_errors=False)
+        eng.run(f"url('{target_url}')", max_depth=0)
     )
 
     # Should yield nothing when errors are not yielded
@@ -1019,9 +1020,9 @@ async def test_yield_errors_bad_status(monkeypatch):
         lambda *a, **k: MockCrawlerWithErrors(responses_by_url=responses),
     )
 
-    eng = WXPathEngine(allowed_response_codes={200})
+    eng = WXPathEngine(allowed_response_codes={200}, yield_errors=True)
     results = await _collect_async(
-        eng.run(f"url('{target_url}')", max_depth=0, yield_errors=True)
+        eng.run(f"url('{target_url}')", max_depth=0)
     )
 
     assert len(results) == 1
@@ -1053,9 +1054,9 @@ async def test_yield_errors_bad_status_empty_body(monkeypatch):
         lambda *a, **k: MockCrawlerWithErrors(responses_by_url=responses),
     )
 
-    eng = WXPathEngine()
+    eng = WXPathEngine(yield_errors=True)
     results = await _collect_async(
-        eng.run(f"url('{target_url}')", max_depth=0, yield_errors=True)
+        eng.run(f"url('{target_url}')", max_depth=0)
     )
 
     assert len(results) == 1
@@ -1102,10 +1103,10 @@ async def test_yield_errors_unexpected_response(monkeypatch):
         ),
     )
 
-    eng = WXPathEngine()
+    eng = WXPathEngine(yield_errors=True)
     # Submit a request for expected_url, but crawler will first yield unexpected response
     results = await _collect_async(
-        eng.run(f"url('{expected_url}')", max_depth=0, yield_errors=True)
+        eng.run(f"url('{expected_url}')", max_depth=0)
     )
 
     # Should get both the unexpected error and the normal result
@@ -1161,12 +1162,12 @@ async def test_yield_errors_mixed_success_and_errors(monkeypatch):
         ),
     )
 
-    eng = WXPathEngine()
+    eng = WXPathEngine(yield_errors=True)
     
     # Create expression that will crawl root, then follow links to both success and error URLs
     expr = f"url('{root_url}')//url(//a/@href)"
     results = await _collect_async(
-        eng.run(expr, max_depth=1, yield_errors=True)
+        eng.run(expr, max_depth=1)
     )
 
     # Should have at least one success result and one error
@@ -1212,6 +1213,78 @@ async def test_yield_errors_default_false(monkeypatch):
 
     # Should yield nothing when errors are not yielded (default)
     assert len(results) == 0
+
+
+@pytest.mark.asyncio
+async def test_engine_progress_interface():
+    """Test that the engine correctly uses a custom ProgressBarInterface."""
+    
+    class MockProgressBar:
+        """Mock progress bar implementing ProgressBarInterface."""
+        def __init__(self):
+            self.total = 0
+            self.progress = 0
+            self.update_calls = 0
+            self.refresh_calls = 0
+            self.postfix_calls = []
+            self.closed = False
+        
+        def update(self, n: int = 1) -> None:
+            self.progress += n
+            self.update_calls += 1
+        
+        def refresh(self) -> None:
+            self.refresh_calls += 1
+        
+        def set_postfix(self, **kwargs) -> None:
+            self.postfix_calls.append(kwargs)
+        
+        def close(self) -> None:
+            self.closed = True
+    
+    # Create a simple crawl scenario
+    html = b"""
+    <html>
+        <body>
+            <a href="http://page2.com">Link</a>
+            <p>Result 1</p>
+        </body>
+    </html>
+    """
+    
+    responses = {
+        "http://root.com": Response(
+            request=Request("http://root.com"),
+            status=200,
+            body=html,
+            error=None,
+        ),
+        "http://page2.com": Response(
+            request=Request("http://page2.com"),
+            status=200,
+            body=b"<html><body><p>Result 2</p></body></html>",
+            error=None,
+        ),
+    }
+    
+    crawler = _FakeCrawlerWithStatus(responses)
+    eng = WXPathEngine(crawler=crawler)
+    pbar = MockProgressBar()
+    
+    # Run with custom progress bar
+    results = await _collect_async(
+        eng.run("url('http://root.com')//url(//@href)//p/text()", max_depth=1, progress=pbar)
+    )
+    
+    # Verify results
+    assert len(results) == 1
+    assert str(results[0]) == "Result 2"
+    
+    # Verify progress bar was used correctly
+    assert pbar.total == 2, "Engine should increment total when enqueueing URLs"
+    assert pbar.update_calls == 2, "Engine should call update() per response"
+    assert pbar.closed, "Engine should call close() at the end"
+    # set_postfix may or may not be called depending on whether results are yielded
 
 
 # -----------------------------
@@ -1575,3 +1648,324 @@ async def test_yield_errors_default_false(monkeypatch):
     
 #     with pytest.raises(asyncio.TimeoutError):
 #         await asyncio.wait_for(run(), timeout=0.3)
+
+
+# --------------------------------------------------------------------------- #
+# Test: Pre-parsed AST Input Tests
+# --------------------------------------------------------------------------- #
+
+def test_engine_run__accepts_preparsed_segments(monkeypatch):
+    """engine.run() should accept pre-parsed Segments AST directly."""
+    from wxpath.core.parser import Segments, parse
+
+    pages = {
+        "http://test/": b"<html><body><p>Hello</p></body></html>",
+    }
+
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+    )
+
+    # Pre-parse the expression
+    expr_str = "url('http://test/')"
+    preparsed = parse(expr_str)
+    assert isinstance(preparsed, Segments)
+
+    eng = engine.WXPathEngine()
+    results = asyncio.run(
+        _collect_async(
+            eng.run(preparsed, max_depth=2)
+        )
+    )
+
+    assert len(results) == 1
+    root = results[0]
+    assert root.get("depth") == "0"
+    assert root.base_url == "http://test/"
+
+
+def test_engine_run__accepts_preparsed_segments_with_xpath(monkeypatch):
+    """engine.run() should accept pre-parsed Segments with xpath extraction."""
+    from wxpath.core.parser import parse
+
+    pages = {
+        "http://test/": b"<html><body><p>Hello World</p></body></html>",
+    }
+
+    monkeypatch.setattr(
+        engine,
+        "Crawler",
+        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+    )
+
+    # Pre-parse the expression
+    expr_str = "url('http://test/')//p/text()"
+    preparsed = parse(expr_str)
+
+    eng = engine.WXPathEngine()
+    results = asyncio.run(
+        _collect_async(
+            eng.run(preparsed, max_depth=1)
+        )
+    )
+
+    assert len(results) == 1
+    assert results[0] == "Hello World"
+
+
+def test_engine_run__accepts_preparsed_xpath_raises_without_url(monkeypatch):
+    """engine.run() should raise ValueError for pure Xpath without url() context."""
+    from wxpath.core.parser import Xpath
+
+    # Pure xpath without url() - no document to query
+    preparsed = Xpath("//a/@href")
+
+    eng = engine.WXPathEngine()
+    # Pure xpath expressions without url() should raise ValueError
+    # because there's no document context to execute the xpath against
+    with pytest.raises(ValueError) as excinfo:
+        asyncio.run(
+            _collect_async(
+                eng.run(preparsed, max_depth=1)
+            )
+        )
+    assert "url()" in str(excinfo.value)
+
+
+def test_engine_run__rejects_invalid_expression_type():
+    """engine.run() should raise TypeError for invalid expression types."""
+    eng = engine.WXPathEngine()
+
+    with pytest.raises(TypeError) as excinfo:
+        asyncio.run(
+            _collect_async(
+                eng.run(12345, max_depth=1)
+            )
+        )
+    assert "must be a string or parsed AST" in str(excinfo.value)
+    assert "int" in str(excinfo.value)
+
+
+def test_engine_run__rejects_none_expression():
+    """engine.run() should raise TypeError for None expression."""
+    eng = engine.WXPathEngine()
+
+    with pytest.raises(TypeError) as excinfo:
+        asyncio.run(
+            _collect_async(
+                eng.run(None, max_depth=1)
+            )
+        )
+    assert "must be a string or parsed AST" in str(excinfo.value)
+    assert "NoneType" in str(excinfo.value)
+
+
+# --------------------------------------------------------------------------- #
+# Test: BFS / DFS strategy tests
+# --------------------------------------------------------------------------- #
+
+
+def test_engine_default_strategy_is_bfs():
+    """WXPathEngine defaults to BFS traversal."""
+    eng = WXPathEngine()
+    assert eng.strategy is CrawlStrategy.BFS
+
+
+def test_engine_dfs_reverses_crawl_order(monkeypatch):
+    """DFS (LIFO queue) processes last-discovered URLs first.
+
+    Given a root page with links [A, B] discovered in document order,
+    BFS yields A then B (FIFO) while DFS yields B then A (LIFO).
+    """
+    pages = {
+        "http://test/": b"""
+            <html><body>
+              <a href="a.html">A</a>
+              <a href="b.html">B</a>
+            </body></html>
+        """,
+        "http://test/a.html": b"<html><body><p>A</p></body></html>",
+        "http://test/b.html": b"<html><body><p>B</p></body></html>",
+    }
+
+    monkeypatch.setattr(
+        engine, "Crawler",
+        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+    )
+
+    expr = "url('http://test/')//url(//@href)"
+
+    eng_bfs = WXPathEngine(strategy=CrawlStrategy.BFS)
+    bfs_results = asyncio.run(_collect_async(eng_bfs.run(expr, max_depth=1)))
+
+    eng_dfs = WXPathEngine(strategy=CrawlStrategy.DFS)
+    dfs_results = asyncio.run(_collect_async(eng_dfs.run(expr, max_depth=1)))
+
+    assert [e.base_url for e in bfs_results] == [
+        "http://test/a.html",
+        "http://test/b.html",
+    ]
+    assert [e.base_url for e in dfs_results] == [
+        "http://test/b.html",
+        "http://test/a.html",
+    ]
+
+
+def test_engine_dfs_deep_crawl_produces_all_results(monkeypatch):
+    """DFS yields the same result set as BFS at deeper levels.
+
+    Under concurrency the exact interleaving is influenced by the
+    crawler's own response stream, so we verify completeness rather than
+    strict ordering for multi-hop expressions.
+
+    Tree structure:
+        root ──► A ──► A1
+             └─► B ──► B1
+    """
+    pages = {
+        "http://test/": b"""
+            <html><body>
+              <a href="a.html">A</a>
+              <a href="b.html">B</a>
+            </body></html>
+        """,
+        "http://test/a.html": b"""
+            <html><body>
+              <a href="a1.html">A1</a>
+            </body></html>
+        """,
+        "http://test/b.html": b"""
+            <html><body>
+              <a href="b1.html">B1</a>
+            </body></html>
+        """,
+        "http://test/a1.html": b"<html><body><p>Leaf A1</p></body></html>",
+        "http://test/b1.html": b"<html><body><p>Leaf B1</p></body></html>",
+    }
+
+    monkeypatch.setattr(
+        engine, "Crawler",
+        lambda *a, **k: MockCrawler(*a, pages=pages, **k),
+    )
+
+    expr = "url('http://test/')//url(//a/@href)//url(//a/@href)"
+
+    eng_dfs = WXPathEngine(strategy=CrawlStrategy.DFS)
+    dfs_results = asyncio.run(
+        _collect_async(eng_dfs.run(expr, max_depth=2))
+    )
+
+    dfs_urls = sorted(e.base_url for e in dfs_results)
+
+    assert dfs_urls == [
+        "http://test/a1.html",
+        "http://test/b1.html",
+    ]
+
+
+def test_engine_dfs_submission_order_is_lifo(monkeypatch):
+    """DFS uses LIFO queue: last-discovered URLs are submitted first.
+
+    Tree structure:
+        root ──► A ──► A1
+             └─► B ──► B1
+
+    When root is processed, links are discovered in document order [A, B].
+    With a LIFO queue, B is submitted before A.
+
+    Under concurrent fetching (instant mock responses), all depth-1 URLs
+    may be submitted before any depth-2 URLs because responses arrive
+    instantly and enqueue children while siblings are still pending.
+    
+    This test verifies the LIFO property at the first hop: B before A.
+    """
+
+    pages = {
+        "http://test/": b"""
+            <html><body>
+              <a href="a.html">A</a>
+              <a href="b.html">B</a>
+            </body></html>
+        """,
+        "http://test/a.html": b"""
+            <html><body>
+              <a href="a1.html">A1</a>
+            </body></html>
+        """,
+        "http://test/b.html": b"""
+            <html><body>
+              <a href="b1.html">B1</a>
+            </body></html>
+        """,
+        "http://test/a1.html": b"<html><body><p>Leaf A1</p></body></html>",
+        "http://test/b1.html": b"<html><body><p>Leaf B1</p></body></html>",
+    }
+
+    class OrderTrackingCrawler:
+        """Mock crawler that records submission order."""
+
+        def __init__(self, *args, pages=None, **kwargs):
+            self.pages = pages or {}
+            self.submission_order: list[str] = []
+            self._queue: asyncio.Queue = asyncio.Queue()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            pass
+
+        def submit(self, request):
+            from wxpath.http.client.response import Response
+            self.submission_order.append(request.url)
+            body = self.pages.get(request.url, b"")
+            resp = Response(
+                request=request,
+                status=200,
+                body=body,
+                headers={},
+            )
+            self._queue.put_nowait(resp)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            return await self._queue.get()
+
+    mock_crawler_bfs = OrderTrackingCrawler(pages=pages)
+    mock_crawler_dfs = OrderTrackingCrawler(pages=pages)
+
+    monkeypatch.setattr(
+        engine, "Crawler",
+        lambda *a, **k: mock_crawler_bfs,
+    )
+    eng_bfs = WXPathEngine(strategy=CrawlStrategy.BFS)
+    _ = asyncio.run(_collect_async(eng_bfs.run(
+        "url('http://test/')//url(//a/@href)//url(//a/@href)", max_depth=2
+    )))
+
+    monkeypatch.setattr(
+        engine, "Crawler",
+        lambda *a, **k: mock_crawler_dfs,
+    )
+    eng_dfs = WXPathEngine(strategy=CrawlStrategy.DFS)
+    _ = asyncio.run(_collect_async(eng_dfs.run(
+        "url('http://test/')//url(//a/@href)//url(//a/@href)", max_depth=2
+    )))
+
+    bfs_order = mock_crawler_bfs.submission_order
+    dfs_order = mock_crawler_dfs.submission_order
+
+    assert bfs_order[0] == "http://test/"
+    assert dfs_order[0] == "http://test/"
+
+    bfs_a_idx = bfs_order.index("http://test/a.html")
+    bfs_b_idx = bfs_order.index("http://test/b.html")
+    dfs_a_idx = dfs_order.index("http://test/a.html")
+    dfs_b_idx = dfs_order.index("http://test/b.html")
+
+    assert bfs_a_idx < bfs_b_idx, "BFS should submit A before B (FIFO)"
+    assert dfs_b_idx < dfs_a_idx, "DFS should submit B before A (LIFO)"

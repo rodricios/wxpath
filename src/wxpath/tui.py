@@ -19,17 +19,21 @@ Example:
 """
 import asyncio
 import csv
+import importlib
 import json
+import sys
+import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, AsyncGenerator, Iterable
 
 from elementpath.xpath_tokens import XPathMap
 from lxml.html import HtmlElement, tostring
 from rich.console import RenderableType
-from textual import work
+from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import (
@@ -38,12 +42,15 @@ from textual.widgets import (
     Footer,
     Header,
     Input,
+    ProgressBar,
     Static,
     Switch,
+    TabbedContent,
+    TabPane,
     TextArea,
 )
 
-from wxpath.core.runtime.engine import WXPathEngine
+from wxpath.core.runtime import ProgressBarInterface, WXPathEngine
 from wxpath.hooks import registry
 from wxpath.hooks.builtin import SerializeXPathMapAndNodeHook
 from wxpath.settings import SETTINGS
@@ -55,139 +62,12 @@ from wxpath.tui_settings import (
 )
 
 
-class HeadersScreen(ModalScreen):
-    """Modal screen for editing HTTP headers.
-    
-    Allows users to paste and edit custom HTTP headers in JSON format.
-    Headers are applied to all subsequent HTTP requests.
-    """
-    
-    CSS = """
-    HeadersScreen {
-        align: center middle;
-    }
-    
-    #headers-dialog {
-        width: 80;
-        height: 25;
-        border: thick $primary;
-        background: $surface;
-        padding: 1 2;
-    }
-    
-    #headers-title {
-        background: $primary;
-        color: $text;
-        text-style: bold;
-        padding: 0 2;
-        dock: top;
-    }
-    
-    #headers-editor {
-        height: 1fr;
-        margin: 1 0;
-    }
-    
-    #headers-help {
-        color: $text-muted;
-        margin-bottom: 1;
-    }
-    
-    #headers-buttons {
-        height: auto;
-        align: center middle;
-    }
-    
-    Button {
-        margin: 0 1;
-    }
-    """
-    
-    def __init__(self, current_headers: dict):
-        """Initialize headers screen with current headers.
-        
-        Args:
-            current_headers: Dictionary of current HTTP headers
-        """
-        super().__init__()
-        self.current_headers = current_headers
-    
-    def compose(self) -> ComposeResult:
-        """Build the headers dialog layout."""
-        with Vertical(id="headers-dialog"):
-            yield Static("HTTP Headers Configuration", id="headers-title")
-            yield Static(
-                ("Enter headers as JSON (one per line or as object)."
-                 " Press Ctrl+S to save, Escape to cancel."),
-                id="headers-help"
-            )
-            
-            # Pre-populate with current headers in JSON format
-            headers_json = json.dumps(self.current_headers, indent=2)
-            yield TextArea(headers_json, language="json", id="headers-editor")
-            
-            with Container(id="headers-buttons"):
-                yield Button("Save (Ctrl+S)", variant="primary", id="save-btn")
-                yield Button("Cancel (Esc)", variant="default", id="cancel-btn")
-    
-    def on_mount(self) -> None:
-        """Focus the editor when screen mounts."""
-        self.query_one("#headers-editor", TextArea).focus()
-    
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
-        if event.button.id == "save-btn":
-            self._save_headers()
-        elif event.button.id == "cancel-btn":
-            self.dismiss(None)
-    
-    def on_key(self, event) -> None:
-        """Handle keyboard shortcuts."""
-        if event.key == "ctrl+s":
-            self._save_headers()
-            event.prevent_default()
-        elif event.key == "escape":
-            self.dismiss(None)
-            event.prevent_default()
-    
-    def _save_headers(self) -> None:
-        """Parse and save the headers."""
-        editor = self.query_one("#headers-editor", TextArea)
-        headers_text = editor.text.strip()
-        
-        if not headers_text:
-            # Empty headers = use defaults
-            self.dismiss({})
-            return
-        
-        try:
-            # Try to parse as JSON
-            headers = json.loads(headers_text)
-            
-            if not isinstance(headers, dict):
-                self.notify("Headers must be a JSON object/dict", severity="error")
-                return
-            
-            # Validate all keys and values are strings
-            for key, value in headers.items():
-                if not isinstance(key, str):
-                    self.notify(f"Header key must be string: {key}", severity="error")
-                    return
-                if not isinstance(value, str):
-                    self.notify(f"Header value must be string: {value}", severity="error")
-                    return
-            
-            self.dismiss(headers)
-            
-        except json.JSONDecodeError as e:
-            self.notify(f"Invalid JSON: {e}", severity="error")
-
-
 class SettingsScreen(ModalScreen):
-    """Modal screen for editing persistent TUI settings (CONCURRENCY, PER_HOST, RESPECT_ROBOTS).
+    """Modal screen for editing persistent TUI settings.
 
-    Settings are saved to ~/.config/wxpath/tui_settings.json and applied to the
-    crawler/engine on the next run.
+    Includes crawler options (CONCURRENCY, PER_HOST, RESPECT_ROBOTS, VERIFY_SSL),
+    TUI options (DEBUG_PANEL, CACHE, WSQL), and HTTP headers (JSON).
+    Settings are saved to ~/.config/wxpath/tui_settings.json.
     """
 
     CSS = """
@@ -196,8 +76,8 @@ class SettingsScreen(ModalScreen):
     }
 
     #settings-dialog {
-        width: 60;
-        min-height: 18;
+        width: 70;
+        min-height: 22;
         border: thick $primary;
         background: $surface;
         padding: 1 2;
@@ -225,6 +105,11 @@ class SettingsScreen(ModalScreen):
         width: 1fr;
     }
 
+    #setting-custom_headers {
+        height: 8;
+        min-height: 5;
+    }
+
     #settings-help {
         color: $text-muted;
         margin: 1 0;
@@ -247,9 +132,9 @@ class SettingsScreen(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-dialog"):
-            yield Static("Crawler Settings (persistent)", id="settings-title")
+            yield Static("TUI Settings (persistent)", id="settings-title")
             yield Static(
-                "Values are saved to config and used for the next run. Ctrl+S save, Esc cancel.",
+                "Values are saved to config. Ctrl+S save, Esc cancel. Headers as JSON object.",
                 id="settings-help",
             )
             for entry in TUISettingsSchema:
@@ -257,23 +142,41 @@ class SettingsScreen(ModalScreen):
                 label = entry["label"]
                 typ = entry["type"]
                 value = self.current.get(key, entry["default"])
-                with Horizontal(classes="settings-row"):
-                    yield Static(label, classes="settings-label")
-                    if typ == "int":
-                        inp = Input(
-                            str(value),
-                            type="integer",
+                if typ == "headers":
+                    with Vertical(classes="settings-row"):
+                        yield Static(label, classes="settings-label")
+                        headers_json = json.dumps(value, indent=2) if value else "{}"
+                        yield TextArea(
+                            headers_json,
+                            language="json",
                             id=f"setting-{key}",
                             classes="settings-input",
                         )
-                        yield inp
-                    else:
-                        sw = Switch(
-                            value=bool(value),
-                            id=f"setting-{key}",
-                            classes="settings-input",
-                        )
-                        yield sw
+                else:
+                    with Horizontal(classes="settings-row"):
+                        yield Static(label, classes="settings-label")
+                        if typ == "int":
+                            inp = Input(
+                                str(value),
+                                type="integer",
+                                id=f"setting-{key}",
+                                classes="settings-input",
+                            )
+                            yield inp
+                        elif typ == "str":
+                            inp = Input(
+                                str(value),
+                                id=f"setting-{key}",
+                                classes="settings-input",
+                            )
+                            yield inp
+                        else:
+                            sw = Switch(
+                                value=bool(value),
+                                id=f"setting-{key}",
+                                classes="settings-input",
+                            )
+                            yield sw
             with Container(id="settings-buttons"):
                 yield Button("Save (Ctrl+S)", variant="primary", id="settings-save-btn")
                 yield Button("Cancel (Esc)", variant="default", id="settings-cancel-btn")
@@ -283,14 +186,19 @@ class SettingsScreen(ModalScreen):
         self.query_one(f"#{first_id}").focus()
 
     def _gather(self) -> dict[str, Any]:
-        result = {}
+        result: dict[str, Any] = {}
         for entry in TUISettingsSchema:
             key = entry["key"]
-            # typ = entry["type"]
+            typ = entry["type"]
             node = self.query_one(f"#setting-{key}")
             if isinstance(node, Input):
                 raw = node.value.strip()
-                result[key] = int(raw) if raw else entry["default"]
+                if typ == "int":
+                    result[key] = int(raw) if raw else entry["default"]
+                else:
+                    result[key] = raw
+            elif isinstance(node, TextArea):
+                result[key] = node.text
             else:
                 result[key] = node.value
         return result
@@ -299,6 +207,14 @@ class SettingsScreen(ModalScreen):
         errors = validate_tui_settings(data)
         return errors[0] if errors else None
 
+    def _coerce_custom_headers(self, data: dict[str, Any]) -> None:
+        """Coerce custom_headers from TextArea string to dict for save and dismiss."""
+        ch = data.get("custom_headers")
+        if isinstance(ch, str):
+            data["custom_headers"] = (
+                json.loads(ch) if ch.strip() else {}
+            )
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "settings-save-btn":
             data = self._gather()
@@ -306,6 +222,7 @@ class SettingsScreen(ModalScreen):
             if err:
                 self.notify(err, severity="error")
                 return
+            self._coerce_custom_headers(data)
             save_tui_settings(data)
             self.dismiss(data)
         elif event.button.id == "settings-cancel-btn":
@@ -318,6 +235,7 @@ class SettingsScreen(ModalScreen):
             if err:
                 self.notify(err, severity="error")
                 return
+            self._coerce_custom_headers(data)
             save_tui_settings(data)
             self.dismiss(data)
             event.prevent_default()
@@ -460,6 +378,83 @@ class DebugPanel(VerticalScroll, can_focus=False):
         self.scroll_end(animate=False)
 
 
+class TextualProgressAdapter:
+    """ProgressBarInterface adapter that drives a Textual ProgressBar widget.
+
+    Used when the engine runs from the TUI so the bar reflects crawl progress
+    (responses completed, total = URLs enqueued) instead of result count.
+    """
+
+    def __init__(
+        self,
+        get_widget: Any,
+        *,
+        initial_total: int = 0,
+    ) -> None:
+        """Initialize the adapter.
+
+        Args:
+            get_widget: Callable that returns the Textual ProgressBar widget
+                (e.g. lambda: self._progress_bar()).
+            initial_total: Initial total (engine expects 0 and does pbar.total += 1).
+        """
+        self._get_widget = get_widget
+        self._progress = 0
+        self._total = initial_total
+
+    @property
+    def total(self) -> int:
+        return self._total
+
+    @total.setter
+    def total(self, value: int) -> None:
+        self._total = value
+        self._refresh_widget()
+
+    def update(self, n: int = 1) -> None:
+        self._progress += n
+        self._refresh_widget()
+
+    def refresh(self) -> None:
+        self._refresh_widget()
+
+    def set_postfix(self, **kwargs: Any) -> None:
+        # Optional: Textual ProgressBar has no postfix; no-op.
+        pass
+
+    def close(self) -> None:
+        # Show complete: progress = total (or 1 if total is 0 to avoid indeterminate)
+        total = self._total if self._total > 0 else 1
+        self._progress = total
+        self._refresh_widget()
+
+    def _refresh_widget(self) -> None:
+        try:
+            widget = self._get_widget()
+            total = self._total if self._total > 0 else None
+            widget.update(progress=self._progress, total=total)
+        except Exception:
+            pass
+
+
+class PanelDivider(Static):
+    """Draggable divider between editor and output panels."""
+
+    class DragStart(Message):
+        """Message emitted when divider dragging starts."""
+
+        def __init__(self, sender: "PanelDivider", screen_x: int, screen_y: int) -> None:
+            super().__init__()
+            self.sender = sender
+            self.screen_x = screen_x
+            self.screen_y = screen_y
+
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Begin divider drag interaction."""
+        self.post_message(self.DragStart(self, event.screen_x, event.screen_y))
+        event.stop()
+
+
 class WXPathTUI(App):
     """Interactive TUI for wxpath expression testing.
     
@@ -474,23 +469,82 @@ class WXPathTUI(App):
     Screen {
         layout: vertical;
         background: $surface;
+        overflow: hidden;
+    }
+
+    #main-panels {
+        layout: vertical;
+        height: 1fr;
+        width: 1fr;
     }
     
     #editor-container {
-        height: 40%;
+        height: 1fr;
+        width: 1fr;
         border: heavy $primary;
         background: $panel;
     }
+
+    #editor-header,
+    #output-header {
+        height: auto;
+        background: $primary;
+        color: $text;
+        padding: 0 1;
+        dock: top;
+    }
+
+    .panel-header-title {
+        width: auto;
+        text-style: bold;
+        padding: 0 1;
+    }
+
+    .panel-header-spacer {
+        width: 1fr;
+    }
+
+    .panel-max-button {
+        min-width: 10;
+        height: 1;
+        min-height: 1;
+        max-height: 1;
+        padding: 0 1;
+        margin: 0;
+        border: none;
+    }
+
+    #editor-tabs {
+        height: 1fr;
+    }
+
+    #editor-tabs TabPane {
+        height: 1fr;
+        padding: 0;
+    }
     
     #output-container {
-        /* height: 60%; */
-        height: 60%;
+        height: 1fr;
+        width: 1fr;
         border: heavy $accent;
         background: $panel;
+    }
+
+    #panel-divider {
+        height: 1;
+        width: 100%;
+        background: $surface-darken-1;
+        color: $text-muted;
+        content-align: center middle;
     }
     
     #output-panel {
         height: 3fr;
+    }
+
+    #output-panel DataTable {
+        height: 1fr;
+        width: 100%;
     }
     
     #debug-container {
@@ -517,8 +571,21 @@ class WXPathTUI(App):
         background: $surface-darken-1;
     }
     
+    #progress-bar-container {
+        height: auto;
+        min-height: 0;
+        /* padding: 0 2 1 2; */
+        dock: bottom;
+        width: 100%;
+    }
+    
+    #progress-bar-container ProgressBar {
+        width: 100%;
+    }
+    
     TextArea {
-        height: 100%;
+        height: 1fr;
+        width: 100%;
         background: $surface;
     }
     
@@ -556,22 +623,30 @@ class WXPathTUI(App):
     BINDINGS = [
         ("ctrl+q", "quit", "Quit"),
         ("ctrl+r", "execute", "Execute"),
-        ("escape", "cancel_crawl", "Cancel Crawl"),
+        ("escape", "cancel_crawl", "Cancel/Dismiss"),
         ("ctrl+c", "clear", "Clear"),
+        ("ctrl+shift+backspace", "clear_editor", "Clear Editor"),
         ("ctrl+d", "clear_debug", "Clear Debug"),
         ("ctrl+shift+d", "toggle_debug", "Toggle Debug"),
+        # ("ctrl+p", "toggle_progress", "Progress bar"),
         ("ctrl+e", "export", "Export"),
         ("ctrl+l", "toggle_cache", "Cache"),
-        ("ctrl+h", "edit_headers", "Headers"),
         ("ctrl+shift+s", "edit_settings", "Settings"),
+        ("ctrl+shift+c", "copy_expression", "Copy Expression"),
         ("f5", "execute", "Execute"),
-        ("tab", "focus_next", "Focus Next"),
     ]
 
     cache_enabled = reactive(False)
-    debug_panel_visible = reactive(True)
+    debug_panel_visible = reactive(False)
+    progress_bar_enabled = reactive(True)
     custom_headers = reactive({})
     tui_settings = reactive({})
+    wsql_enabled = reactive(False)
+    wsql_install_path = reactive("")
+    _max_table_cell_chars = 400
+    panel_view_mode = reactive("split")
+    editor_panel_percent = reactive(40)
+    panels_side_by_side = reactive(False)
     
     def __init__(self):
         """Initialize the TUI application.
@@ -587,39 +662,132 @@ class WXPathTUI(App):
         self._crawl_worker = None  # Worker for current crawl; used for cancellation
         self._last_sort_column: str | None = None
         self._last_sort_reverse = False
-        # Don't set cache_enabled here - let on_mount handle it
+        # Skip first TextArea.Changed from initial editor content
+        self._skip_next_live_execution = True
+        self._wsql_path_added = False
+        self._dragging_divider = False
+
+    def _progress_bar_container(self) -> Container:
+        """Return the progress bar container (for show/hide during execution)."""
+        return self.query_one("#progress-bar-container", Container)
+
+    def _progress_bar(self) -> ProgressBar:
+        """Return the ProgressBar widget."""
+        return self.query_one("#progress-bar", ProgressBar)
+
+    def _editor_container(self) -> Container:
+        """Return the editor panel container."""
+        return self.query_one("#editor-container", Container)
+
+    def _output_container(self) -> Container:
+        """Return the output panel container."""
+        return self.query_one("#output-container", Container)
+
+    def _panel_divider(self) -> PanelDivider:
+        """Return the draggable divider widget."""
+        return self.query_one("#panel-divider", PanelDivider)
+
+    def _main_panels(self) -> Container:
+        """Return the main panels container."""
+        return self.query_one("#main-panels", Container)
+
+    def _editor_tabs(self) -> TabbedContent:
+        """Return the editor tab container."""
+        return self.query_one("#editor-tabs", TabbedContent)
+
+    def _active_editor_mode(self) -> str:
+        """Return active editor mode: ``wxpath`` or ``wsql``."""
+        return "wsql" if self._editor_tabs().active == "wsql-tab" else "wxpath"
+
+    def _active_editor(self) -> TextArea:
+        """Return the currently active editor widget."""
+        editor_id = "#wsql-editor" if self._active_editor_mode() == "wsql" else "#expression-editor"
+        return self.query_one(editor_id, TextArea)
     
     def compose(self) -> ComposeResult:
         """Build the application layout."""
         yield Header()
-        
-        with Container(id="editor-container"):
-            yield Static("Expression Editor (Ctrl+R to execute)", classes="panel-header")
-            yield TextArea(id="expression-editor", language="python")
-        
-        with Container(id="output-container"):
-            yield Static("Output", classes="panel-header") 
-            yield OutputPanel(id="output-panel")
-            # yield Button("Export (Ctrl+E)", id="export_button")
-        
-            with Container(id="debug-container"):
-                yield Static("Debug", id="debug-header", classes="panel-header")
-                yield DebugPanel(id="debug-panel")
+        with Container(id="main-panels"):
+            with Container(id="editor-container"):
+                with Horizontal(id="editor-header"):
+                    yield Static("Editor (Ctrl+R to execute active tab)", classes="panel-header-title") # noqa: E501
+                    yield Static("", classes="panel-header-spacer")
+                    yield Button("Max.", id="maximize-editor-btn", classes="panel-max-button")
+                with TabbedContent(id="editor-tabs", initial="wxpath-tab"):
+                    with TabPane("WXPath", id="wxpath-tab"):
+                        yield TextArea(id="expression-editor", language="python")
+                    with TabPane("WSQL", id="wsql-tab"):
+                        yield TextArea(id="wsql-editor", language="sql")
+
+            yield PanelDivider("drag to resize", id="panel-divider")
+            
+            with Container(id="output-container"):
+                with Horizontal(id="output-header"):
+                    yield Static("Output", classes="panel-header-title")
+                    yield Static("", classes="panel-header-spacer")
+                    yield Button("Max.", id="maximize-output-btn", classes="panel-max-button")
+                yield OutputPanel(id="output-panel")
+                with Container(id="progress-bar-container"):
+                    yield ProgressBar(id="progress-bar", show_eta=True)
+                # with OutputPanel(id="output-panel"):
+
+                # yield Button("Export (Ctrl+E)", id="export_button")
+            
+                with Container(id="debug-container"):
+                    yield Static("Debug", id="debug-header", classes="panel-header")
+                    yield DebugPanel(id="debug-panel")
             
         yield Footer()
     
     def on_mount(self) -> None:
         """Initialize with a sample expression."""
-        # Set cache_enabled from settings - this will trigger the watcher and update subtitle
-        self.cache_enabled = bool(SETTINGS.http.client.cache.enabled)
-        # Load persistent TUI settings (CONCURRENCY, PER_HOST, RESPECT_ROBOTS)
+        # Load all TUI settings from config (crawler, debug panel, cache, headers)
         self.tui_settings = load_tui_settings()
+        self.debug_panel_visible = bool(
+            self.tui_settings.get("debug_panel_enabled", False)
+        )
+        self.cache_enabled = bool(self.tui_settings.get("cache_enabled", True))
+        SETTINGS.http.client.cache.enabled = self.cache_enabled
+        self.custom_headers = dict(
+            self.tui_settings.get("custom_headers") or {}
+        )
+        self.wsql_enabled = bool(self.tui_settings.get("wsql_enabled", False))
+        self.wsql_install_path = str(self.tui_settings.get("wsql_install_path", "")).strip()
+        self.panels_side_by_side = bool(
+            self.tui_settings.get("panels_side_by_side", False)
+        )
         
         editor = self.query_one("#expression-editor", TextArea)
+        wsql_editor = self.query_one("#wsql-editor", TextArea)
         # Start with a simple example
-        editor.text = "url('https://quotes.toscrape.com')//span[@class='text']/text()"
+        editor.text = (
+            "url('https://quotes.toscrape.com', depth=5, follow=//li[@class='next']/a/@href)\n"
+            "  //url(//a[contains(@href, '/author/')]/@href)\n"
+            "    /map {\n"
+            "      'url': string(base-uri(.)),\n"
+            "      'name': //h3[@class='author-title']/text(),\n"
+            "      'born': //span[@class='author-born-date']/text(),\n"
+            "      'bio': //div[@class='author-description']/text() ! normalize-space(.) ! string(.)\n" # noqa: E501
+            "    }\n"
+        )
+        wsql_editor.text = (
+            "SELECT\n"
+            "    string(base-uri(.)) AS url,\n"
+            "    ./span[@class='text']/text() AS quote,\n"
+            "    .//small[@class='author']/text() AS author\n"
+            "FROM https://quotes.toscrape.com\n"
+            "    PER //div[@class='row']//div[@class='quote']\n"
+            "    FOLLOW //li[@class='next']/a/@href\n"
+            "    DEPTH 5\n"
+        )
         editor.focus()
+        self._apply_orientation_layout()
+        self._apply_split_layout()
+        self._update_panel_button_labels()
         
+        # Progress bar container hidden until execution starts (and progress bar enabled)
+        self._progress_bar_container().display = False
+
         # Show initial help text
         self._update_output(
             "[dim]Welcome to wxpath TUI![/dim]\n\n"
@@ -629,10 +797,12 @@ class WXPathTUI(App):
             "  • Press [bold]Escape[/bold] to cancel a running crawl\n"
             "  • Press [bold]Ctrl+E[/bold] to export table (CSV/JSON)\n"
             "  • Press [bold]Ctrl+C[/bold] to clear output\n"
+            "  • Press [bold]Ctrl+Shift+Backspace[/bold] to clear expression editor\n"
             "  • Press [bold]Ctrl+Shift+D[/bold] to toggle debug panel\n"
-            "  • Press [bold]Ctrl+H[/bold] to configure HTTP headers\n"
-            "  • Press [bold]Ctrl+Shift+S[/bold] to edit persistent settings (concurrency, robots)\n" # noqa: E501
+            "  • Press [bold]Ctrl+P[/bold] to toggle progress bar (on by default)\n"
+            "  • Press [bold]Ctrl+Shift+S[/bold] to edit settings (crawler, cache, headers)\n"
             "  • Press [bold]Ctrl+L[/bold] to toggle HTTP caching\n"
+            "  • Use [bold]WXPath / WSQL[/bold] tabs to switch editor modes\n"
             "  • Use [bold]arrow keys[/bold] or [bold]scroll[/bold] to view results\n\n"
             "[cyan]Example expressions:[/cyan]\n"
             "  • Extract text: url('...')//div//text()\n"
@@ -642,11 +812,110 @@ class WXPathTUI(App):
         )
 
     def watch_cache_enabled(self, new_value: bool) -> None:
-        """Update global settings and subtitle when cache setting changes."""
-        # Update the global settings - this is what the HTTP crawler will read
+        """Update global settings, persist to config, and update subtitle."""
         SETTINGS.http.client.cache.enabled = bool(new_value)
-        print(f"Cache enabled: {SETTINGS.http.client.cache.enabled}")
+        self.tui_settings = {**self.tui_settings, "cache_enabled": new_value}
+        save_tui_settings(self.tui_settings)
+        self._debug(f"Cache enabled: {SETTINGS.http.client.cache.enabled}")
         self._update_subtitle()
+
+    def watch_editor_panel_percent(self, new_value: int) -> None:
+        """Apply split height updates while in split mode."""
+        if self.panel_view_mode == "split":
+            self._apply_split_layout()
+
+    def watch_panels_side_by_side(self, new_value: bool) -> None:
+        """Apply panel orientation changes."""
+        self._apply_orientation_layout()
+        if self.panel_view_mode == "split":
+            self._apply_split_layout()
+
+    def watch_panel_view_mode(self, new_value: str) -> None:
+        """Switch between split/editor-max/output-max panel modes."""
+        editor = self._editor_container()
+        output = self._output_container()
+        divider = self._panel_divider()
+        if new_value == "editor-max":
+            editor.display = True
+            editor.styles.height = "1fr"
+            output.display = False
+            divider.display = False
+        elif new_value == "output-max":
+            editor.display = False
+            output.display = True
+            output.styles.height = "1fr"
+            divider.display = False
+        else:
+            editor.display = True
+            output.display = True
+            divider.display = True
+            self._apply_split_layout()
+        self._update_panel_button_labels()
+        self.refresh(layout=True)
+
+    def _clamp_split_percent(self, percent: int) -> int:
+        """Clamp editor panel split percent into safe bounds."""
+        return max(20, min(80, int(percent)))
+
+    def _apply_split_layout(self) -> None:
+        """Apply current editor/output split percentages."""
+        editor_percent = self._clamp_split_percent(self.editor_panel_percent)
+        output_percent = 100 - editor_percent
+        if self.panels_side_by_side:
+            self._editor_container().styles.height = "1fr"
+            self._output_container().styles.height = "1fr"
+            self._editor_container().styles.width = f"{editor_percent}fr"
+            self._output_container().styles.width = f"{output_percent}fr"
+        else:
+            # Use fr units so split fits available viewport space
+            # (header/footer/divider included) without causing screen overflow.
+            self._editor_container().styles.height = f"{editor_percent}fr"
+            self._output_container().styles.height = f"{output_percent}fr"
+            self._editor_container().styles.width = "1fr"
+            self._output_container().styles.width = "1fr"
+
+    def _apply_orientation_layout(self) -> None:
+        """Apply stacked vs side-by-side orientation styles."""
+        panels = self._main_panels()
+        divider = self._panel_divider()
+        if self.panels_side_by_side:
+            panels.styles.layout = "horizontal"
+            divider.styles.width = 1
+            divider.styles.height = "100%"
+            divider.update("drag")
+        else:
+            panels.styles.layout = "vertical"
+            divider.styles.height = 1
+            divider.styles.width = "100%"
+            divider.update("drag to resize")
+
+    def _update_panel_button_labels(self) -> None:
+        """Update maximize/restore button labels for current panel mode."""
+        editor_btn = self.query_one("#maximize-editor-btn", Button)
+        output_btn = self.query_one("#maximize-output-btn", Button)
+        editor_btn.label = (
+            "Min." if self.panel_view_mode == "editor-max" else "Max."
+        )
+        output_btn.label = (
+            "Min." if self.panel_view_mode == "output-max" else "Max."
+        )
+
+    def _set_split_from_screen_position(self, screen_x: int, screen_y: int) -> None:
+        """Convert absolute mouse position to panel split percent."""
+        editor = self._editor_container()
+        output = self._output_container()
+        if self.panels_side_by_side:
+            left = editor.region.x
+            right = output.region.x + output.region.width
+            total = max(1, right - left)
+            relative = max(1, min(total - 1, screen_x - left))
+        else:
+            top = editor.region.y
+            bottom = output.region.y + output.region.height
+            total = max(1, bottom - top)
+            relative = max(1, min(total - 1, screen_y - top))
+        percent = int((relative / total) * 100)
+        self.editor_panel_percent = self._clamp_split_percent(percent)
     
     def watch_custom_headers(self, new_value: dict) -> None:
         """Update subtitle when custom headers change."""
@@ -658,17 +927,26 @@ class WXPathTUI(App):
     
     def _update_subtitle(self) -> None:
         """Update subtitle with current cache, headers, and persistent settings."""
-        cache_state = "ON" if self.cache_enabled else "OFF"
+        # cache_state = "ON" if self.cache_enabled else "OFF"
+        cache_state = SETTINGS.http.client.cache.enabled
         headers_count = len(self.custom_headers)
         headers_info = f"{headers_count} custom" if headers_count > 0 else "default"
+        wsql_state = "ON" if self.wsql_enabled else "OFF"
+        layout_state = "SIDE" if self.panels_side_by_side else "STACKED"
         conc = self.tui_settings.get("concurrency", 16)
         ph = self.tui_settings.get("per_host", 8)
         robots = "ON" if self.tui_settings.get("respect_robots", True) else "OFF"
         self.sub_title = (
             f"Cache: {cache_state} | Headers: {headers_info} | "
-            f"Concurrency: {conc} | Per host: {ph} | Robots: {robots} | "
+            f"Concurrency: {conc} | Per host: {ph} | Robots: {robots} | WSQL: {wsql_state} | Layout: {layout_state} | " # noqa: E501
             f"Ctrl+R: Run | Ctrl+Shift+S: Settings | Ctrl+Q: Quit"
         )
+
+    def action_copy_expression(self) -> None:
+        """Copy the expression to the clipboard."""
+        expression = self._active_editor().text
+        self.copy_to_clipboard(expression)
+        self._debug(f"Expression copied to clipboard: {expression}")
 
     async def action_toggle_cache(self) -> None:
         """Toggle HTTP caching on/off for new requests."""
@@ -685,45 +963,45 @@ class WXPathTUI(App):
         )
         self._debug(f"Toggled cache from {old_label} to {new_label}")
     
-    def action_edit_headers(self) -> None:
-        """Open the headers configuration screen."""
-        def handle_headers_result(result):
-            """Handle the result from the headers screen."""
-            if result is not None:
-                self.custom_headers = result
-                count = len(result)
-                if count == 0:
-                    self._update_output(
-                        "[cyan]Headers cleared - using defaults[/cyan]\n\n"
-                        "[dim]This will apply to the next expression execution.[/dim]"
-                    )
-                else:
-                    headers_preview = json.dumps(result, indent=2)
-                    self._update_output(
-                        f"[cyan]Custom headers saved ({count} headers)[/cyan]\n\n"
-                        f"[green]{headers_preview}[/green]\n\n"
-                        "[dim]These will apply to the next expression execution.[/dim]"
-                    )
-        
-        self.push_screen(HeadersScreen(dict(self.custom_headers)), handle_headers_result)
-        self._debug("Opened headers configuration screen")
-
     def action_edit_settings(self) -> None:
-        """Open the persistent settings screen (CONCURRENCY, PER_HOST, RESPECT_ROBOTS)."""
+        """Open the settings modal (crawler, debug panel, cache, headers)."""
         def handle_settings_result(result: dict[str, Any] | None) -> None:
             if result is not None:
                 self.tui_settings = result
+                self.debug_panel_visible = bool(
+                    result.get("debug_panel_enabled", False)
+                )
+                self.cache_enabled = bool(result.get("cache_enabled", True))
+                SETTINGS.http.client.cache.enabled = self.cache_enabled
+                ch = result.get("custom_headers") or {}
+                if isinstance(ch, str):
+                    try:
+                        ch = json.loads(ch) if ch.strip() else {}
+                    except json.JSONDecodeError:
+                        ch = {}
+                self.custom_headers = dict(ch) if isinstance(ch, dict) else {}
+                self.wsql_enabled = bool(result.get("wsql_enabled", False))
+                self.wsql_install_path = str(result.get("wsql_install_path", "")).strip()
+                self.panels_side_by_side = bool(
+                    result.get("panels_side_by_side", False)
+                )
                 self._update_output(
-                    "[cyan]Persistent settings saved[/cyan]\n\n"
+                    "[cyan]Settings saved[/cyan]\n\n"
                     f"CONCURRENCY: {result.get('concurrency', 16)} | "
                     f"PER_HOST: {result.get('per_host', 8)} | "
-                    f"RESPECT_ROBOTS: {result.get('respect_robots', True)}\n\n"
-                    "[dim]These apply to the next expression execution.[/dim]"
+                    f"RESPECT_ROBOTS: {result.get('respect_robots', True)} | "
+                    f"DEBUG: {result.get('debug_panel_enabled', False)} | "
+                    f"CACHE: {result.get('cache_enabled', True)} | "
+                    f"HEADERS: {len(self.custom_headers)} custom | "
+                    f"WSQL: {self.wsql_enabled} | "
+                    f"WSQL_PATH: {self.wsql_install_path or '(auto)'} | "
+                    f"SIDE_BY_SIDE: {self.panels_side_by_side}\n\n"
+                    "[dim]Apply to the next run.[/dim]"
                 )
-                self._debug("Persistent settings saved and applied")
+                self._debug("Settings saved and applied")
 
         self.push_screen(SettingsScreen(dict(self.tui_settings)), handle_settings_result)
-        self._debug("Opened persistent settings screen")
+        self._debug("Opened settings screen")
 
     def _get_output_data_table(self) -> DataTable | None:
         """Return the first DataTable in the output panel, or None if none.
@@ -859,27 +1137,46 @@ class WXPathTUI(App):
         """Handle button presses (e.g. Export)."""
         if event.button.id == "export_button":
             self.action_export()
-    
-    def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        """Validate expression as user types."""
-        if event.text_area.id != "expression-editor":
+        elif event.button.id == "maximize-editor-btn":
+            self.panel_view_mode = (
+                "split" if self.panel_view_mode == "editor-max" else "editor-max"
+            )
+        elif event.button.id == "maximize-output-btn":
+            self.panel_view_mode = (
+                "split" if self.panel_view_mode == "output-max" else "output-max"
+            )
+
+    @on(PanelDivider.DragStart)
+    def _on_panel_divider_drag_start(self, event: PanelDivider.DragStart) -> None:
+        """Start drag-to-resize interaction from divider."""
+        self._dragging_divider = True
+        if self.panel_view_mode != "split":
+            self.panel_view_mode = "split"
+        self._set_split_from_screen_position(event.screen_x, event.screen_y)
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        """Resize split continuously while divider is being dragged."""
+        if not self._dragging_divider:
             return
-        
-        expression = event.text_area.text.strip()
-        
-        if not expression:
-            self._update_output("[dim]Waiting - Enter an expression and press Ctrl+R "
-                                "or F5 to execute[/dim]")
-            return
-        
-        # Show validation status
-        if not self._validate_expression(expression):
-            self._update_output("[yellow]Waiting - Expression incomplete (check parentheses,"
-                                " braces, brackets, quotes)[/yellow]")
-        else:
-            self._update_output("[green]Expression appears valid - Press Ctrl+R or F5 to execute"
-                                "[/green]")
+        self._set_split_from_screen_position(event.screen_x, event.screen_y)
+
+    def on_mouse_up(self, _event: events.MouseUp) -> None:
+        """Stop drag-to-resize interaction."""
+        self._dragging_divider = False
     
+    @work(exclusive=True)
+    @on(TextArea.Changed)
+    async def live_expression_execution(self, event: TextArea.Changed) -> None:
+        """Execute expression as user types. Will produce results if the expression is valid."""
+        if event.text_area.id not in {"expression-editor", "wsql-editor"}:
+            return
+        if self._skip_next_live_execution:
+            self._skip_next_live_execution = False
+            return
+        self._debug("Text area changed")
+        self._debug("Live expression execution started")
+        await self.action_execute()
+
     def _prep_row(self, result: XPathMap | dict, keys: list[str]) -> list[str]:
         """Prepare a row for table display from a dict-like result.
         
@@ -904,13 +1201,17 @@ class WXPathTUI(App):
                 else:
                     value = list(value)[:10]
             # Convert to string for table display
-            row.append("" if value is None else str(value))
+            text_value = "" if value is None else str(value)
+            if len(text_value) > self._max_table_cell_chars:
+                text_value = text_value[: self._max_table_cell_chars] + "..."
+            row.append(text_value)
         return row
 
     @work(exclusive=True)
-    async def collect_results(self, expression: str) -> None:
+    async def collect_results(self, expression: Any, mode: str = "wxpath") -> None:
         """Collect results from the expression."""
         count = 0
+        show_progress = self.progress_bar_enabled
         try:
             # Wrap the async iteration with timeout (60s for larger result sets)
 
@@ -928,26 +1229,72 @@ class WXPathTUI(App):
                 verify_ssl=verify_ssl,
                 headers=dict(self.custom_headers) if self.custom_headers else None,
             )
-            engine = WXPathEngine(crawler=crawler)
+            engine = WXPathEngine(crawler=crawler, yield_errors=True)
             
             # Streaming approach
             panel = self.query_one("#output-panel", OutputPanel)
             panel.clear()
 
+            # Create progress adapter if enabled (engine will drive the bar)
+            progress_adapter: ProgressBarInterface | None = None
+            if show_progress and mode != "wsql":
+                self._progress_bar_container().display = True
+                self._progress_bar().update(progress=0, total=None)
+                progress_adapter = TextualProgressAdapter(
+                    lambda: self._progress_bar(),
+                    initial_total=0,
+                )
+                self._debug("Progress bar shown (engine-driven)")
+
             # data_table = None
             data_table = DataTable(show_header=True, zebra_stripes=True)
+            data_table.styles.height = "1fr"
+            data_table.styles.width = "100%"
             panel.mount(data_table)
             columns_initialized = False
             column_keys: list[str] = []
 
-            async for result in engine.run(expression, max_depth=1, progress=False):
+            result_stream: AsyncGenerator[Any, None]
+            if mode == "wsql":
+                if show_progress:
+                    self._debug(
+                        "WSQLExecutor drives execution DAG; TUI progress bar is disabled for WSQL mode." # noqa: E501
+                    )
+                executor = self._create_wsql_executor(
+                    concurrency=conc,
+                    per_host=ph,
+                    respect_robots=robots,
+                    verify_ssl=verify_ssl,
+                    headers=dict(self.custom_headers) if self.custom_headers else None,
+                )
+                result_stream = executor.execute(
+                    expression,
+                    progress=False,
+                    yield_errors=True,
+                )
+            else:
+                result_stream = engine.run(
+                    expression,
+                    max_depth=1,
+                    progress=progress_adapter if progress_adapter is not None else False,
+                )
+
+            async for result in result_stream:
+                if isinstance(result, dict) and result.get("__type__") == "error":
+                    self._debug(f"Error: {result.get('reason')}: {result}")
+                    continue
                 count += 1
                 if count % 100 == 0:
                     self._debug(f"Received result {count} of type {type(result).__name__}")
 
+                if result.__class__.__name__ == "DataIntentWithProjection":
+                    result = result.value
+
                 if isinstance(result, XPathMap):
                     # result = dict(result.items())
                     result = result._map
+
+                
 
                 if not columns_initialized:
                     self._debug("Initializing table columns")
@@ -974,9 +1321,9 @@ class WXPathTUI(App):
             # Keep partial results; append status without clearing the panel
             panel = self.query_one("#output-panel", OutputPanel)
             if count > 0:
-                panel.append(f"[yellow]Crawl cancelled — {count} partial result(s) shown.[/yellow]")
+                panel.append(f"[yellow]Crawl cancelled - {count} partial result(s) shown.[/yellow]")
             else:
-                panel.append("[yellow]Crawl cancelled.[/yellow]")
+                panel.append("[yellow]Crawl cancelled. Run the expression again to continue.[/yellow]") # noqa: E501
             self._debug("Crawl cancelled by user.")
             raise
         except asyncio.TimeoutError:
@@ -990,11 +1337,21 @@ class WXPathTUI(App):
             self._executing = False
             return
         except Exception as e:
-            # Handle execution errors separately
-            self._update_output(f"[red]Execution Error:[/red] {type(e).__name__}: {e}")
+            # Log full stack trace to debug panel
+            self._debug(traceback.format_exc())
+            # Append error as next row of table (do not clear output panel)
+            err_msg = f"Execution Error: {type(e).__name__}: {e}"
+            if columns_initialized and column_keys:
+                row = [err_msg] + [""] * (len(column_keys) - 1)
+                data_table.add_row(*row, key=f"error-{count}")
+            else:
+                data_table.add_column("error", key="error")
+                data_table.add_row(err_msg, key="error-0")
             self._executing = False
             return
         finally:
+            if show_progress:
+                self._progress_bar_container().display = False
             self._executing = False
             self._debug(f"Processed {count} results.")
         
@@ -1004,7 +1361,8 @@ class WXPathTUI(App):
         if self._executing:
             return
         
-        editor = self.query_one("#expression-editor", TextArea)
+        editor = self._active_editor()
+        mode = self._active_editor_mode()
         expression = editor.text.strip()
         
         if not expression:
@@ -1013,24 +1371,32 @@ class WXPathTUI(App):
         
         self._executing = True
         self._update_output("[cyan]Executing...[/cyan]")
-        self._debug(f"Executing expression: {expression!r}")
+        self._debug(f"Executing {mode} expression: {expression!r}")
 
         try:
-            # Validate expression first
-            if not self._validate_expression(expression):
-                self._update_output("[yellow]Waiting - Expression incomplete or invalid[/yellow]")
-                self._executing = False
-                return
-            
-            # # Parse the expression - useful for deducing if to display table
-            # parsed = parser.parse(expression)
-            self._crawl_worker = self.collect_results(expression)
+            if mode == "wsql":
+                self._create_wsql_executor()
+                self._update_output(
+                    "[cyan]Executing WSQL via WSQLExecutor (DAG orchestration + transpilation)...[/cyan]" # noqa: E501
+                )
+                self._crawl_worker = self.collect_results(expression, mode="wsql")
+            else:
+                # Validate expression first
+                if not self._validate_expression(expression):
+                    self._update_output("[yellow]Waiting - Expression incomplete or invalid[/yellow]") # noqa: E501
+                    self._executing = False
+                    return
+                self._crawl_worker = self.collect_results(expression)
+        except (ImportError, RuntimeError, ValueError, AttributeError) as e:
+            self._update_output(f"[yellow]WSQL integration error:[/yellow] {e}")
+            self._debug(f"WSQL integration error: {type(e).__name__}: {e}")
+            self._executing = False
         except SyntaxError as e:
             self._update_output(f"[yellow]Waiting - Syntax Error:[/yellow] {e}")
             self._executing = False
-        except ValueError as e:
-            self._update_output(f"[yellow]Waiting - Validation Error:[/yellow] {e}")
-            self._executing = False
+        # except ValueError as e:
+        #     self._update_output(f"[yellow]Waiting - Validation Error:[/yellow] {e}")
+        #     self._executing = False
         except Exception as e:
             self._update_output(f"[red]Error:[/red] {type(e).__name__}: {e}")
             self._executing = False
@@ -1086,7 +1452,77 @@ class WXPathTUI(App):
         """Clear the output panel."""
         self._update_output("Waiting for expression...")
         self._debug("Cleared output panel.")
-    
+
+    def action_clear_editor(self) -> None:
+        """Clear the expression editor (all text)."""
+        editor = self._active_editor()
+        editor.text = ""
+        self._debug(f"{self._active_editor_mode().upper()} editor cleared.")
+
+    def _create_wsql_executor(
+        self,
+        *,
+        concurrency: int = 16,
+        per_host: int = 8,
+        respect_robots: bool = True,
+        verify_ssl: bool = True,
+        headers: dict[str, str] | None = None,
+    ) -> Any:
+        """Create a configured ``WSQLExecutor`` from installed WSQL runtime APIs."""
+        if not self.wsql_enabled:
+            raise RuntimeError(
+                "WSQL is disabled. Enable WSQL in Settings (Ctrl+Shift+S) to use this tab."
+            )
+
+        install_path = self.wsql_install_path.strip()
+        if install_path:
+            path = Path(install_path).expanduser()
+            if not path.exists():
+                raise ValueError(f"WSQL_PATH does not exist: {path}")
+            path_text = str(path.resolve())
+            if path_text not in sys.path:
+                sys.path.insert(0, path_text)
+                self._wsql_path_added = True
+                self._debug(f"Added WSQL_PATH to sys.path: {path_text}")
+
+        try:
+            wsql_runtime_module = importlib.import_module("wsql.runtime.executor")
+        except ImportError as e:
+            raise ImportError(
+                "Could not import 'wsql.runtime.executor'. Install WSQL or set WSQL_PATH in TUI settings." # noqa: E501
+            ) from e
+
+        executor_cls = getattr(wsql_runtime_module, "WSQLExecutor", None)
+        if executor_cls is None:
+            raise AttributeError(
+                "wsql.runtime.executor must expose WSQLExecutor"
+            )
+
+        # Use a custom executor wrapper so each query context gets a fresh engine.
+        # This avoids shared-state issues (e.g. seen_urls) in JOIN/DAG execution.
+        class _TUIWSQLExecutor(executor_cls):
+            """WSQL executor configured for TUI crawler settings."""
+
+            def _create_engine(self) -> WXPathEngine:  # type: ignore[override]
+                from wxpath.http.client.crawler import Crawler
+
+                crawler = Crawler(
+                    concurrency=concurrency,
+                    per_host=per_host,
+                    respect_robots=respect_robots,
+                    verify_ssl=verify_ssl,
+                    headers=dict(headers) if headers else None,
+                )
+                return WXPathEngine(crawler=crawler, yield_errors=True)
+
+        return _TUIWSQLExecutor(
+            engine=None,
+            concurrency=concurrency,
+            per_host=per_host,
+            respect_robots=respect_robots,
+            yield_errors=True,
+        )
+
     def _update_output(self, content: str | RenderableType) -> None:
         """Update the output panel with new content."""
         # output_panel = self.query_one("#output-panel", OutputPanel)
@@ -1109,15 +1545,28 @@ class WXPathTUI(App):
         panel.clear()
 
     def watch_debug_panel_visible(self, visible: bool) -> None:
-        """Show or hide the debug panel when toggled."""
+        """Show or hide the debug panel and persist to config when toggled."""
         container = self.query_one("#debug-container", Container)
         container.display = visible
+        self.tui_settings = {
+            **self.tui_settings,
+            "debug_panel_enabled": visible,
+        }
+        save_tui_settings(self.tui_settings)
 
     def action_toggle_debug(self) -> None:
         """Toggle the debug panel visibility."""
         self.debug_panel_visible = not self.debug_panel_visible
         state = "shown" if self.debug_panel_visible else "hidden"
         self._debug(f"Debug panel {state}")
+
+    def action_toggle_progress(self) -> None:
+        """Toggle the progress bar (shown during execution when enabled)."""
+        self.progress_bar_enabled = not self.progress_bar_enabled
+        state = "on" if self.progress_bar_enabled else "off"
+        self._debug(f"Progress bar {state}")
+        if not self.progress_bar_enabled and self._executing:
+            self._progress_bar_container().display = False
 
     def _escape_rich_markup(self, s: str) -> str:
        """Escape [ and ] so Rich does not interpret them as markup."""

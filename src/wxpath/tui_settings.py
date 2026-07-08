@@ -71,6 +71,49 @@ TUISettingsSchema: list[dict[str, Any]] = [
         "default": getattr(CRAWLER_SETTINGS, "verify_ssl", True),
         "help": "Verify SSL certificates. Disable for sites with broken certificate chains.",
     },
+    # TUI-specific settings (stored in same config file)
+    {
+        "key": "debug_panel_enabled",
+        "label": "DEBUG_PANEL",
+        "type": "bool",
+        "default": False,
+        "help": "Show the debug panel at the bottom of the TUI (default: off).",
+    },
+    {
+        "key": "cache_enabled",
+        "label": "CACHE",
+        "type": "bool",
+        "default": True,
+        "help": "Enable HTTP response caching for the TUI (default: on for faster runs).",
+    },
+    {
+        "key": "custom_headers",
+        "label": "HTTP_HEADERS",
+        "type": "headers",
+        "default": {},
+        "help": "Custom HTTP headers as JSON object (e.g. {\"User-Agent\": \"...\"}).",
+    },
+    {
+        "key": "wsql_enabled",
+        "label": "WSQL_ENABLED",
+        "type": "bool",
+        "default": False,
+        "help": "Enable WSQL transpilation in the TUI (optional integration).",
+    },
+    {
+        "key": "wsql_install_path",
+        "label": "WSQL_PATH",
+        "type": "str",
+        "default": "",
+        "help": "Optional path to add to sys.path so `import wsql` works.",
+    },
+    {
+        "key": "panels_side_by_side",
+        "label": "PANELS_SIDE_BY_SIDE",
+        "type": "bool",
+        "default": False,
+        "help": "Show editor and output panels side-by-side instead of stacked.",
+    },
 ]
 
 
@@ -114,6 +157,39 @@ def _validate_value(key: str, value: Any, schema: list[dict[str, Any]]) -> Any:
         if isinstance(value, str):
             return value.strip().lower() in ("1", "true", "yes", "on")
         return bool(value)
+    if t == "headers":
+        if isinstance(value, dict):
+            out = {}
+            for k, v in value.items():
+                if not isinstance(k, str) or not isinstance(v, str):
+                    raise ValueError(
+                        f"{key}: header keys and values must be strings"
+                    ) from None
+                out[k] = v
+            return out
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return {}
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"{key}: invalid JSON: {e}") from None
+            if not isinstance(parsed, dict):
+                raise ValueError(f"{key}: headers must be a JSON object") from None
+            for k, v in parsed.items():
+                if not isinstance(k, str) or not isinstance(v, str):
+                    raise ValueError(
+                        f"{key}: header keys and values must be strings"
+                    ) from None
+            return parsed
+        raise ValueError(
+            f"{key}: expected dict or JSON string, got {type(value).__name__}"
+        ) from None
+    if t == "str":
+        if value is None:
+            return ""
+        return str(value).strip()
     return value
 
 

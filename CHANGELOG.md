@@ -29,3 +29,10 @@
 - Extend wxpath DSL with `wx:` functions/macros 
     - e.g. `wx:current-url(), wx:fetch-time(), wx:status-code(), main-article-text(), etc.`
 - Add LangChain integration for document loading (RAG)
+
+## 0.6.0
+- Add `wx:contains-all()` and `wx:contains-any()` functions (and case-insensitive variants)
+- BFS/DFS crawl strategy switch
+- Improved error handling and reporting
+- License changed to AGPL-3.0
+- Improved TUI with WSQL integration, side-by-side panels, draggable divider

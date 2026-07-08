@@ -330,6 +330,86 @@ class TestParserErrors:
 
 
 # =============================================================================
+# Input Validation Tests
+# =============================================================================
+
+class TestInputValidation:
+    """Test that parse() and tokenize() validate input types correctly."""
+
+    def test_parse_none_raises_typeerror(self):
+        """parse() should raise TypeError when given None."""
+        with pytest.raises(TypeError) as excinfo:
+            parse(None)
+        assert "expected a string expression" in str(excinfo.value)
+        assert "NoneType" in str(excinfo.value)
+
+    def test_parse_int_raises_typeerror(self):
+        """parse() should raise TypeError when given an integer."""
+        with pytest.raises(TypeError) as excinfo:
+            parse(123)
+        assert "expected a string expression" in str(excinfo.value)
+        assert "int" in str(excinfo.value)
+
+    def test_parse_list_raises_typeerror(self):
+        """parse() should raise TypeError when given a list."""
+        with pytest.raises(TypeError) as excinfo:
+            parse(["url('http://example.com')"])
+        assert "expected a string expression" in str(excinfo.value)
+        assert "list" in str(excinfo.value)
+
+    def test_parse_dict_raises_typeerror(self):
+        """parse() should raise TypeError when given a dict."""
+        with pytest.raises(TypeError) as excinfo:
+            parse({"expr": "url('http://example.com')"})
+        assert "expected a string expression" in str(excinfo.value)
+        assert "dict" in str(excinfo.value)
+
+    def test_parse_bytes_raises_typeerror(self):
+        """parse() should raise TypeError when given bytes."""
+        with pytest.raises(TypeError) as excinfo:
+            parse(b"url('http://example.com')")
+        assert "expected a string expression" in str(excinfo.value)
+        assert "bytes" in str(excinfo.value)
+
+    def test_parse_empty_string_raises_valueerror(self):
+        """parse() should raise ValueError when given an empty string."""
+        with pytest.raises(ValueError) as excinfo:
+            parse("")
+        assert "empty or whitespace-only" in str(excinfo.value)
+
+    def test_parse_whitespace_only_raises_valueerror(self):
+        """parse() should raise ValueError when given whitespace-only string."""
+        with pytest.raises(ValueError) as excinfo:
+            parse("   \n\t  ")
+        assert "empty or whitespace-only" in str(excinfo.value)
+
+    def test_tokenize_none_raises_typeerror(self):
+        """tokenize() should raise TypeError when given None."""
+        with pytest.raises(TypeError) as excinfo:
+            list(tokenize(None))
+        assert "expected a string expression" in str(excinfo.value)
+        assert "NoneType" in str(excinfo.value)
+
+    def test_tokenize_int_raises_typeerror(self):
+        """tokenize() should raise TypeError when given an integer."""
+        with pytest.raises(TypeError) as excinfo:
+            list(tokenize(42))
+        assert "expected a string expression" in str(excinfo.value)
+        assert "int" in str(excinfo.value)
+
+    def test_valid_string_succeeds(self):
+        """Verify that valid strings still work after validation."""
+        result = parse("url('http://example.com')//a/@href")
+        assert result is not None
+
+    def test_error_message_includes_value_repr(self):
+        """Error message should include repr of the invalid value."""
+        with pytest.raises(TypeError) as excinfo:
+            parse(None)
+        assert "None" in str(excinfo.value)
+
+
+# =============================================================================
 # Complex Expression Tests  
 # =============================================================================
 

@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wxpath"
-version = "0.5.2"
-description = "wxpath - a declarative web crawler and data extractor"
+version = "0.6.0"
+description = "wxpath - declarative web graph traversal with XPath"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
     { name = "Rodrigo Palacios", email = "rodrigopala91@gmail.com" }
 ]
-license = "MIT"
+license = "AGPL-3.0"
 license-files = ["LICENSE"]
 
 dependencies = [

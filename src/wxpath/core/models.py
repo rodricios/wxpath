@@ -1,5 +1,20 @@
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, List, Optional, Tuple
+
+
+class CrawlStrategy(Enum):
+    """Traversal order for the crawl frontier.
+
+    Attributes:
+        BFS: Breadth-first search - processes URLs in FIFO order,
+            exploring all links at the current depth before moving deeper.
+        DFS: Depth-first search - processes URLs in LIFO order,
+            diving as deep as possible along each branch before backtracking.
+    """
+
+    BFS = "bfs"
+    DFS = "dfs"
 
 
 @dataclass(slots=True)
@@ -73,3 +88,6 @@ class CrawlFromAttributeIntent(ProcessIntent):
 @dataclass(slots=True)
 class DataIntent(Intent):
     value: Any
+
+    def get_value(self) -> Any:
+        return self.value

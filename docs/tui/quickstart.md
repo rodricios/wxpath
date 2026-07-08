@@ -2,7 +2,7 @@
 
 **Get started with the wxpath TUI in 5 minutes!**
 
-> NOTE: I highly recommended you enable caching (Ctrl+L) for faster execution, and set `url('...', depth=...)` for capped crawls to be polite to the servers you are crawling.
+> NOTE: Caching is **on by default** in the TUI. Set `url('...', depth=...)` for capped crawls to be polite to the servers you are crawling.
 
 
 ## Step 0: Preview
@@ -40,7 +40,7 @@ python -m wxpath.tui
 1. **Top panel** shows an example expression
 2. **Press Ctrl+R or F5** to execute
 3. **Bottom panel** shows results
-  a. Debug panel shows debug messages
+  a. Enable the debug panel in Settings (Ctrl+Shift+S) if you want to see debug messages (off by default)
 
 ### Try These Expressions:
 
@@ -70,6 +70,9 @@ url('https://quotes.toscrape.com')
 |-----|--------|
 | `Ctrl+R` or `F5` | Execute expression |
 | `Escape` | Cancel crawl (keep partial results) |
+| `Ctrl+Shift+S` | Settings (crawler, cache, debug panel, HTTP headers) |
+| `Ctrl+L` | Toggle cache (default: on) |
+| `Ctrl+Shift+D` | Toggle debug panel (default: off) |
 | `Ctrl+C` | Clear output |
 | `Ctrl+Q` | Quit |
 
@@ -196,7 +199,6 @@ url('https://example.com')//article/map {
 │ COMMANDS                                                │
 │   wxpath-tui              Launch TUI                    │
 │   python -m wxpath.tui    Alternative launch            │
-│   python demo_tui.py      Offline demo                  │
 │                                                         │
 │ KEYBOARD                                                │
 │   Ctrl+R, F5              Execute expression            │
