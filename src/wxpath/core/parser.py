@@ -42,6 +42,26 @@ TOKEN_RE = re.compile("|".join(
 ))
 
 
+def _validate_expression_input(src: str, func_name: str = "parse") -> None:
+    """Validate that the input is a non-empty string expression.
+
+    Args:
+        src: The input to validate.
+        func_name: Name of the caller ('parse' or 'tokenize') for error context.
+
+    Raises:
+        TypeError: If src is not a str (message includes 'expected a string expression'
+            and the type name).
+        ValueError: If src is empty or whitespace-only (only when func_name is 'parse').
+    """
+    if not isinstance(src, str):
+        raise TypeError(
+            f"expected a string expression, got {type(src).__name__}: {repr(src)}"
+        )
+    if func_name == "parse" and not src.strip():
+        raise ValueError("expected a non-empty expression: empty or whitespace-only")
+
+
 @dataclass
 class Token:
     type: str
@@ -51,6 +71,7 @@ class Token:
 
 
 def tokenize(src: str):
+    _validate_expression_input(src, "tokenize")
     for m in TOKEN_RE.finditer(src):
         kind = m.lastgroup
         # # NOTE: in order to preserve native XPath expressions that contain whitespace,
@@ -639,6 +660,7 @@ def find_wxpath_boundary(tokens: list[Token]) -> tuple[int, int] | None:
 
 
 def parse(src):
+    _validate_expression_input(src, "parse")
     tokens = list(tokenize(src))
     
     boundary = find_wxpath_boundary(tokens)

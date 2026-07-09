@@ -111,15 +111,13 @@ class TestSettingsScreen:
         }
         screen = SettingsScreen(current_settings)
         # Patch Textual widget classes so compose doesn't require an active App.
-        with patch("wxpath.tui.Vertical"), patch("wxpath.tui.Horizontal"), patch(
-            "wxpath.tui.Static"
-        ), patch("wxpath.tui.TextArea"), patch("wxpath.tui.Input"), patch(
-            "wxpath.tui.Switch"
-        ), patch(
+        with patch("wxpath.tui.Vertical"), patch("wxpath.tui.VerticalScroll"), patch(
+            "wxpath.tui.Horizontal"
+        ), patch("wxpath.tui.Static"), patch("wxpath.tui.TextArea"), patch(
+            "wxpath.tui.Input"
+        ), patch("wxpath.tui.Switch"), patch("wxpath.tui.OptionList"), patch(
             "wxpath.tui.Container"
-        ), patch(
-            "wxpath.tui.Button"
-        ):
+        ), patch("wxpath.tui.Button"):
             widgets = list(screen.compose())
         assert len(widgets) > 0
 
