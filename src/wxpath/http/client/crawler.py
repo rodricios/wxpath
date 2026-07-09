@@ -1,9 +1,10 @@
 import abc
+
 import aiohttp
 
 try:
-    from aiohttp_client_cache import CachedSession, session as cached_session
-    from aiohttp_client_cache.response import CachedResponse
+    from aiohttp_client_cache import CachedSession
+    from aiohttp_client_cache import session as cached_session
 except ImportError:
     CachedSession = None
 
@@ -11,14 +12,11 @@ import asyncio
 import json
 import time
 import urllib.parse
-from aiohttp.cookiejar import CookieJar
 from asyncio import Lock
 from collections import defaultdict
-from contextlib import nullcontext
-from playwright.async_api import async_playwright
-from playwright_stealth import Stealth, ALL_EVASIONS_DISABLED_KWARGS
+from contextlib import nullcontext, suppress
 from socket import gaierror
-from typing import AsyncIterator, Callable, cast
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Mapping
 
 from wxpath.http.client.cache import get_cache_backend
 from wxpath.http.client.request import Request
@@ -27,10 +25,41 @@ from wxpath.http.policy.retry import RetryPolicy
 from wxpath.http.policy.robots import RobotsTxtPolicy
 from wxpath.http.policy.throttler import AbstractThrottler, AutoThrottler
 from wxpath.http.stats import CrawlerStats, build_trace_config
-from wxpath.settings import SETTINGS, CACHE_SETTINGS, CRAWLER_SETTINGS, AttrDict
+from wxpath.settings import CACHE_SETTINGS, CRAWLER_SETTINGS, AttrDict
 from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from playwright.async_api import Playwright
+
+
+def _get_playwright_imports() -> tuple[Callable[[], Any], Any]:
+    """Load Playwright runtime dependencies only when needed.
+
+    Returns:
+        A tuple of ``(async_playwright, Stealth)``.
+
+    Raises:
+        RuntimeError: If required Playwright dependencies are not installed.
+    """
+    try:
+        from playwright.async_api import async_playwright  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright support requires optional dependencies. "
+            "Install with: pip install 'wxpath[playwright]'"
+        ) from exc
+
+    try:
+        from playwright_stealth import Stealth  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright stealth mode requires playwright-stealth. "
+            "Install with: pip install 'wxpath[playwright]'"
+        ) from exc
+
+    return async_playwright, Stealth
 
 def get_async_session(
         headers: dict | None = None,
@@ -183,10 +212,11 @@ class BaseCrawler(abc.ABC):
                 log.debug("cancelled error", extra={"url": req.url})
                 raise
 
-            except gaierror:
-                # Ignore DNS errors
+            except gaierror as exc:
+                # Emit an error response so callers can account for task completion.
+                # Swallowing DNS failures can deadlock consumers waiting on results.
                 log.warning("DNS error", extra={"url": req.url})
-                pass
+                await self._results.put(Response(req, 0, b"", error=exc))
 
             except Exception as exc:
                 log.error("exception", extra={"url": req.url}, exc_info=exc)
@@ -286,13 +316,24 @@ class BaseCrawler(abc.ABC):
 
 
 class PlaywrightCrawler(BaseCrawler):
+    """Crawler implementation backed by a headless Playwright browser."""
+
     def __init__(self, stealth: bool = False, *args, **kwargs):
+        """Initialize a Playwright-backed crawler.
+
+        Args:
+            stealth: Enable playwright-stealth evasions.
+            *args: Positional arguments forwarded to ``BaseCrawler``.
+            **kwargs: Keyword arguments forwarded to ``BaseCrawler``.
+        """
         super().__init__(*args, **kwargs)
 
         self.stealth = stealth
 
+        self._async_playwright: Callable[[], Any] | None = None
+        self._stealth_cls: Any | None = None
         self._stealth_playwright = None
-        self._playwright = None
+        self._playwright: Playwright | None = None
         self._browser = None
         self._cache_backend = None
 
@@ -302,15 +343,21 @@ class PlaywrightCrawler(BaseCrawler):
         # self._cookie_jar = None
 
     async def __aenter__(self) -> "PlaywrightCrawler":
+        """Start Playwright browser resources and worker tasks."""
+        if self._async_playwright is None or self._stealth_cls is None:
+            self._async_playwright, self._stealth_cls = _get_playwright_imports()
+
         # if self.stealth and self._stealth_playwright is None:
         #     self._stealth_playwright = await Stealth().use_async(async_playwright()).__aenter__()
         #     breakpoint()
 
         if self._playwright is None:
             if self.stealth:
-                self._playwright = await Stealth().use_async(async_playwright()).__aenter__()
+                self._playwright = await self._stealth_cls().use_async(
+                    self._async_playwright()
+                ).__aenter__()
             else:
-                self._playwright = await async_playwright().start()
+                self._playwright = await self._async_playwright().start()
 
         if self._browser is None:
             self._browser = await self._playwright.chromium.launch(headless=True)
@@ -326,22 +373,85 @@ class PlaywrightCrawler(BaseCrawler):
         #     # Reflecting ClientSession's internal cookie jar
         #     self._cookie_jar = CookieJar(loop=asyncio.get_running_loop())
 
-        
-
         self._workers = [
             asyncio.create_task(self._worker(), name=f"crawler-worker-{i}")
             for i in range(self.concurrency)
         ]   
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        # should we have stored the context manager, and then called __aexit__ on it?
-        await self._browser.close()
-        await self._playwright.stop()
+        """Tear down workers, browser resources, and cache backend."""
+        self._closed = True
+
+        for worker in self._workers:
+            worker.cancel()
+        await asyncio.gather(*self._workers, return_exceptions=True)
+        self._workers = []
+
+        if self._cache_backend is not None:
+            close_fn = getattr(self._cache_backend, "close", None)
+            if callable(close_fn):
+                await close_fn()
+
+        if self._browser is not None:
+            with suppress(Exception):
+                await self._browser.close()
+        if self._playwright is not None:
+            with suppress(Exception):
+                await self._playwright.stop()
 
         self._playwright = None
         self._browser = None
         self._cache_backend = None
+        self._robots_policy = None
+
+    def _build_raw_headers(self, headers: Mapping[str, str]) -> tuple[tuple[bytes, bytes], ...]:
+        """Build aiohttp-compatible raw headers.
+
+        Args:
+            headers: Mapping of header names to header values.
+
+        Returns:
+            Header tuples encoded as UTF-8 bytes.
+        """
+        return tuple(
+            (str(key).encode("utf-8"), str(value).encode("utf-8"))
+            for key, value in headers.items()
+        )
+
+    def _build_cache_response_silhouette(self, response, body: str) -> AttrDict:
+        """Build a ClientResponse-like object compatible with aiohttp-client-cache.
+
+        Args:
+            response: Playwright response-like object.
+            body: HTML payload returned by Playwright.
+
+        Returns:
+            AttrDict with the minimal shape required by cache serialization.
+        """
+        response_headers = dict(response.headers)
+        request_headers = self._headers
+        raw_headers = self._build_raw_headers(response_headers)
+        request_info = AttrDict(
+            real_url=response.url,
+            headers=request_headers,
+        )
+        return AttrDict(
+            url=response.url,
+            reason=response.status_text,
+            method="GET",
+            status=response.status,
+            _body=body,
+            raw_headers=raw_headers,
+            headers=response_headers,
+            cookies=[],
+            version="playwright",  # version typically holds aiohttp-client-cache version
+            _released=True,  # response already read
+            links={},
+            get_encoding=lambda: None,
+            request_info=request_info,
+            history=[],
+        )
 
     async def _fetch_one(self, req: Request) -> Response | None:
         """Return cached response or fetch a single request"""
@@ -393,7 +503,7 @@ class PlaywrightCrawler(BaseCrawler):
                 log.debug(f'Using cached response for {req.url}')
 
                 return Response(req, response.status, response._body, 
-                                headers=response.raw_headers, 
+                                headers=dict(response.headers), 
                                 request_start=0, response_end=0)
             # If the response was missing or expired, send and cache a new request
             else:
@@ -439,27 +549,21 @@ class PlaywrightCrawler(BaseCrawler):
 
         #### CACHE LOGIC PT. 2 ####
         actions.update_from_response(response)
-        # sillhouette needs the following fields
-        # {'url', 'reason', 'raw_headers', 'status', 'version', 'cookies', 'method'}
-        resp_sillhouette = AttrDict(
-            url=response.url,
-            reason=response.status_text,
-            method='GET',
-            status=response.status,
-            _body=body,
-            raw_headers=response.headers,
-            cookies=[],
-            version='playwright', # version typically holds aiohttp-client-cache version
-            _released=True, # response already read
-            links={},
-            get_encoding=lambda: None,
-            request_info=AttrDict(real_url=response.url), # or...?
-            history=[],
-            # **response
-        )
+        resp_sillhouette = self._build_cache_response_silhouette(response, body)
         if await self._cache_backend.is_cacheable(resp_sillhouette, actions):
-            await self._cache_backend.save_response(resp_sillhouette, actions.key, actions.expires)
-            log.info("[CACHE WRITE]", extra={"req.url": req.url, "resp.url": response.url})
+            try:
+                await self._cache_backend.save_response(
+                    resp_sillhouette,
+                    actions.key,
+                    actions.expires,
+                )
+                log.info("[CACHE WRITE]", extra={"req.url": req.url, "resp.url": response.url})
+            except Exception as exc:
+                log.warning(
+                    "playwright cache write failed",
+                    extra={"req.url": req.url, "resp.url": response.url},
+                    exc_info=exc,
+                )
         #### END CACHE LOGIC PT. 2 ####
         
         # TODO: Should we pass down headers like we do in Crawler()? 

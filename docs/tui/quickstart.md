@@ -100,12 +100,12 @@ Result 2:
 
 **Table Results (from `map {...}`):**
 ```
-┌─────────────────────────────────┬──────────────────┐
+┌---------------------------------┬------------------┐
 │ quote                           │ author           │
-├─────────────────────────────────┼──────────────────┤
+├---------------------------------┼------------------┤
 │ "The world as we have..."       │ Albert Einstein  │
 │ "It is our choices..."          │ J.K. Rowling     │
-└─────────────────────────────────┴──────────────────┘
+└---------------------------------┴------------------┘
 ```
 
 **HTML Elements:**
@@ -193,9 +193,9 @@ url('https://example.com')//article/map {
 ## Quick Reference Card
 
 ```
-┌─────────────────────────────────────────────────────────┐
+┌---------------------------------------------------------┐
 │              wxpath TUI Quick Reference                 │
-├─────────────────────────────────────────────────────────┤
+├---------------------------------------------------------┤
 │ COMMANDS                                                │
 │   wxpath-tui              Launch TUI                    │
 │   python -m wxpath.tui    Alternative launch            │
@@ -214,17 +214,17 @@ url('https://example.com')//article/map {
 │   ///url(...)             Follow links (crawl)          │
 │                                                         │
 │ OUTPUT                                                  │
-│   Text → List of strings                                │
-│   Dict → Table with columns                             │
-│   HTML → Partial element (300 chars)                    │
-│   Error → Clear message                                 │
+│   Text -> List of strings                                │
+│   Dict -> Table with columns                             │
+│   HTML -> Partial element (300 chars)                    │
+│   Error -> Clear message                                 │
 │                                                         │
 │ LIMITS                                                  │
 │   Results: 10 items max                                 │
 │   Depth: 1 level max                                    │
 │   Timeout: 30 seconds                                   │
 │   Table: 50 rows max                                    │
-└─────────────────────────────────────────────────────────┘
+└---------------------------------------------------------┘
 ```
 
 ## Success!

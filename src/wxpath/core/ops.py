@@ -111,7 +111,11 @@ def _handle_url_str_lit(curr_elem: html.HtmlElement,
     # NOTE: Expects parser to produce UrlCrawl node in expressions
     # that look like `url('...', follow=//a/@href)`
     if isinstance(url_call, UrlCrawl):
-        xpath_arg = [arg for arg in url_call.args if isinstance(arg, Xpath)][0]
+        xpath_args = [arg for arg in url_call.args if isinstance(arg, Xpath)]
+        if len(xpath_args) != 1:
+            raise ValueError("url(..., follow=...) requires exactly one XPath argument")
+
+        xpath_arg = xpath_args[0]
         _segments = [
             UrlCrawl('///url', [xpath_arg, url_call.args[0].value])
         ] + next_segments

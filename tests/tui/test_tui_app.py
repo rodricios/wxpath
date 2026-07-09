@@ -27,11 +27,18 @@ def _isolate_xdg_config_home(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
 
 @asynccontextmanager
 async def run_tui_app() -> Any:
-    """Run the TUI in Textual's test harness and yield (app, pilot)."""
+    """Run the TUI in Textual's test harness and yield (app, pilot).
+
+    Exits the app via pilot.exit() before leaving run_test() so the process
+    can shut down cleanly and pytest does not hang.
+    """
     app = WXPathTUI()
     async with app.run_test() as pilot:  # type: ignore[attr-defined]
         await pilot.pause()
-        yield app, pilot
+        try:
+            yield app, pilot
+        finally:
+            await pilot.exit(None)
 
 
 class TestWXPathTUIValidation:
@@ -526,9 +533,21 @@ class TestWSQLIntegration:
         app = WXPathTUI()
         app.wsql_enabled = True
         app.wsql_install_path = ""
+        app.tui_settings = {
+            "crawler_type": "playwright",
+            "concurrency": 32,
+            "per_host": 4,
+            "respect_robots": False,
+            "verify_ssl": False,
+            "playwright_stealth": True,
+            "flaresolverr_url": "http://localhost:9000/v1",
+            "custom_headers": {"X-Test": "1"},
+        }
         app._debug = MagicMock()
 
         class FakeExecutor:
+            """Minimal stand-in for WSQLExecutor used to capture init kwargs."""
+
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
 
@@ -544,5 +563,16 @@ class TestWSQLIntegration:
 
         assert isinstance(result, FakeExecutor)
         mock_import.assert_called_once_with("wsql.runtime.executor")
+
+        # Executor wiring
         assert result.kwargs["yield_errors"] is True
-        assert result.kwargs["engine"] is None
+        assert "engine" not in result.kwargs
+        assert "crawler" not in result.kwargs
+        assert result.kwargs["default_crawler_name"] == "playwright"
+        assert result.kwargs["concurrency"] == 32
+        assert result.kwargs["per_host"] == 4
+        assert result.kwargs["respect_robots"] is False
+        assert result.kwargs["verify_ssl"] is False
+        assert result.kwargs["headers"] == {"X-Test": "1"}
+        assert result.kwargs["playwright_stealth"] is True
+        assert result.kwargs["flaresolverr_url"] == "http://localhost:9000/v1"

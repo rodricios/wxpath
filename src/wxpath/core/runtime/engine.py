@@ -301,6 +301,16 @@ class WXPathEngine(HookedEngineBase):
                 else:
                     yield await self.post_extract_hooks(output)
 
+            # If seed processing produced neither crawl work nor output,
+            # terminate early instead of waiting forever on crawler results.
+            if is_terminal():
+                submit_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await submit_task
+                if pbar is not None:
+                    pbar.close()
+                return
+
             # While looping asynchronous generators, you MUST make sure 
             # to check terminal conditions before re-iteration.
             async for resp in crawler:
@@ -583,6 +593,7 @@ def wxpath_async_blocking_iter(
     finally:
         loop.run_until_complete(loop.shutdown_asyncgens())
         loop.close()
+        asyncio.set_event_loop(None)
 
 
 def wxpath_async_blocking(

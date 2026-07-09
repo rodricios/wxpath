@@ -1,26 +1,57 @@
+import importlib.util
+import sys
+from pathlib import Path
+
 import pytest
 
-from wxpath.core.parser import (
-    PRECEDENCE,
-    Binary,
-    Call,
-    ContextItem,
-    Depth,
-    Name,
-    Number,
-    Parser,
-    Segments,
-    String,
-    Token,
-    Url,
-    UrlCrawl,
-    UrlLiteral,
-    Wxpath,
-    Xpath,
-    find_wxpath_boundary,
-    parse,
-    tokenize,
-)
+
+def _load_parser_module():
+    """Dynamically load the core parser module without importing the full wxpath package.
+
+    The normal import path ``from wxpath.core import parser`` triggers package
+    initialisation that depends on optional HTTP/crawler integrations
+    (for example, ``playwright``). Those heavy, optional dependencies are not
+    required for parser unit tests and can cause import-time failures.
+
+    This helper loads ``src/wxpath/core/parser.py`` directly as a standalone
+    module so that the tests exercise the real parser implementation while
+    remaining isolated from optional runtime dependencies.
+    """
+    project_root = Path(__file__).resolve().parents[2]
+    parser_path = project_root / "src" / "wxpath" / "core" / "parser.py"
+
+    spec = importlib.util.spec_from_file_location("wxpath_core_parser", parser_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load parser module from {parser_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    # Register the module so that relative imports inside it (if any) can work.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_parser = _load_parser_module()
+
+PRECEDENCE = _parser.PRECEDENCE
+Binary = _parser.Binary
+Call = _parser.Call
+ContextItem = _parser.ContextItem
+Depth = _parser.Depth
+Name = _parser.Name
+Number = _parser.Number
+Parser = _parser.Parser
+Segments = _parser.Segments
+String = _parser.String
+Token = _parser.Token
+Url = _parser.Url
+UrlCrawl = _parser.UrlCrawl
+UrlLiteral = _parser.UrlLiteral
+Wxpath = _parser.Wxpath
+Xpath = _parser.Xpath
+find_wxpath_boundary = _parser.find_wxpath_boundary
+parse = _parser.parse
+tokenize = _parser.tokenize
 
 # =============================================================================
 # Tokenizer Tests

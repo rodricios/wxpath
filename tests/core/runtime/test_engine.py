@@ -52,6 +52,26 @@ class _FakeCrawlerWithStatus:
         return await self._q.get()
 
 
+class _HangingCrawler:
+    """Crawler stub that never yields responses."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return None
+
+    def submit(self, request):
+        return None
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await asyncio.sleep(3600)
+        raise StopAsyncIteration
+
+
 # --------------------------------------------------------------------------- #
 # Tests
 # --------------------------------------------------------------------------- #
@@ -81,6 +101,25 @@ def test_engine_run__crawl(monkeypatch):
     root = results[0]
     assert root.get("depth") == "0"
     assert root.base_url == "http://test/"
+
+
+@pytest.mark.asyncio
+async def test_engine_run__returns_when_seed_pipeline_is_terminal(monkeypatch):
+    """Run should exit cleanly when seed processing yields no crawl work."""
+    monkeypatch.setattr(engine, "Crawler", lambda *a, **k: _HangingCrawler())
+
+    def _empty_operator(curr_elem, curr_segments, curr_depth):
+        return []
+
+    monkeypatch.setattr(engine, "get_operator", lambda *_: _empty_operator)
+
+    eng = engine.WXPathEngine()
+    results = await asyncio.wait_for(
+        _collect_async(eng.run([object()], max_depth=0)),
+        timeout=0.2,
+    )
+
+    assert results == []
 
 
 def test_engine_run__crawl__crawl_with_xpath(monkeypatch):
@@ -1821,8 +1860,8 @@ def test_engine_dfs_deep_crawl_produces_all_results(monkeypatch):
     strict ordering for multi-hop expressions.
 
     Tree structure:
-        root ──► A ──► A1
-             └─► B ──► B1
+        root --► A --► A1
+             └-► B --► B1
     """
     pages = {
         "http://test/": b"""
@@ -1869,8 +1908,8 @@ def test_engine_dfs_submission_order_is_lifo(monkeypatch):
     """DFS uses LIFO queue: last-discovered URLs are submitted first.
 
     Tree structure:
-        root ──► A ──► A1
-             └─► B ──► B1
+        root --► A --► A1
+             └-► B --► B1
 
     When root is processed, links are discovered in document order [A, B].
     With a LIFO queue, B is submitted before A.
