@@ -1,4 +1,6 @@
 ## Unreleased
+- Add `//wx:paginate(extract, click=..., pages=...)` for browser click pagination.
+- Stream each page's extraction results and stop at a missing control, unchanged page, or page limit.
 - Add optional headless crawler backends: `PlaywrightCrawler` and `FlareSolverrCrawler`
 - Add TUI crawler settings: `crawler_type`, `playwright_stealth`, and `flaresolverr_url`
 - Prevent runtime hangs by emitting error responses for DNS failures in crawler workers

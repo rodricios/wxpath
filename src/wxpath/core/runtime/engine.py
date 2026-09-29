@@ -20,12 +20,12 @@ from wxpath.core.models import (
     ProcessIntent,
 )
 from wxpath.core.ops import get_operator
-from wxpath.core.parser import Binary, Depth, Segment, Segments, Xpath
+from wxpath.core.parser import Binary, Click, Depth, Pages, Paginate, Segment, Segments, Url, Xpath
 from wxpath.core.runtime.helpers import parse_html
 from wxpath.core.runtime.progress import ProgressBarInterface
 from wxpath.hooks.registry import FetchContext, get_hooks
-from wxpath.http.client.crawler import Crawler
-from wxpath.http.client.request import Request
+from wxpath.http.client.crawler import Crawler, PlaywrightCrawler
+from wxpath.http.client.request import Pagination, Request
 from wxpath.util.logging import get_logger
 
 log = get_logger(__name__)
@@ -244,6 +244,23 @@ class WXPathEngine(HookedEngineBase):
 
         max_depth = self._get_max_depth(bin_or_segs, max_depth)
 
+        if isinstance(bin_or_segs, (list, Segments)):
+            for index, segment in enumerate(bin_or_segs):
+                if not isinstance(segment, Paginate):
+                    continue
+                if index == 0 or not isinstance(bin_or_segs[index - 1], Url):
+                    raise ValueError("wx:paginate must directly follow url()")
+                if not isinstance(self.crawler, PlaywrightCrawler):
+                    raise ValueError("wx:paginate requires a PlaywrightCrawler")
+                if (
+                    len(segment.args) not in (2, 3)
+                    or not isinstance(segment.args[0], Xpath)
+                    or not isinstance(segment.args[1], Click)
+                ):
+                    raise ValueError("wx:paginate requires an XPath and a click XPath")
+                if len(segment.args) == 3 and not isinstance(segment.args[2], Pages):
+                    raise ValueError("wx:paginate pages must be an integer")
+
         crawl_queue: asyncio.Queue[CrawlTask] | asyncio.LifoQueue[CrawlTask] = (
             asyncio.LifoQueue() if self.strategy is CrawlStrategy.DFS
             else asyncio.Queue()
@@ -279,7 +296,14 @@ class WXPathEngine(HookedEngineBase):
                     inflight[task.url] = task
 
                     pending_tasks += 1
-                    crawler.submit(Request(task.url, max_retries=0))
+                    pagination = None
+                    if task.segments and isinstance(task.segments[0], Paginate):
+                        paginate = task.segments[0]
+                        if len(paginate.args) == 3:
+                            pagination = Pagination(paginate.args[1].value, paginate.args[2].value)
+                        else:
+                            pagination = Pagination(paginate.args[1].value)
+                    crawler.submit(Request(task.url, max_retries=0, pagination=pagination))
                     crawl_queue.task_done()
 
             submit_task = asyncio.create_task(submitter())
@@ -318,8 +342,10 @@ class WXPathEngine(HookedEngineBase):
                     pbar.update(1)
                     pbar.refresh()
 
-                task = inflight.pop(resp.request.url, None)
-                pending_tasks -= 1
+                task = inflight.get(resp.request.url)
+                if task is not None and resp.complete:
+                    inflight.pop(resp.request.url, None)
+                    pending_tasks -= 1
 
                 if task is None:
                     log.warning(f"Got unexpected response from {resp.request.url}")
@@ -333,6 +359,11 @@ class WXPathEngine(HookedEngineBase):
                             "body": resp.body
                         }
                         
+                    if is_terminal():
+                        break
+                    continue
+
+                if resp.terminal:
                     if is_terminal():
                         break
                     continue
@@ -378,7 +409,7 @@ class WXPathEngine(HookedEngineBase):
 
                 elem = parse_html(
                     body,
-                    base_url=task.url,
+                    base_url=resp.page_url or task.url,
                     backlink=task.backlink,
                     depth=task.depth,
                     response=resp
@@ -397,7 +428,8 @@ class WXPathEngine(HookedEngineBase):
                         depth=task.depth,
                         max_depth=max_depth,
                         crawl_queue=crawl_queue,
-                        pbar=pbar
+                        pbar=pbar,
+                        yield_errors=yield_errors,
                     ):  
                         total_yielded += 1
                         if pbar is not None:
