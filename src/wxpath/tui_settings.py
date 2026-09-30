@@ -114,6 +114,29 @@ TUISettingsSchema: list[dict[str, Any]] = [
         "default": False,
         "help": "Show editor and output panels side-by-side instead of stacked.",
     },
+    # Headless browser / crawler backend
+    {
+        "key": "crawler_type",
+        "label": "CRAWLER_TYPE",
+        "type": "str",
+        "default": "aiohttp",
+        "choices": ("aiohttp", "playwright", "flaresolverr"),
+        "help": "Backend: aiohttp (default), playwright, or flaresolverr.",
+    },
+    {
+        "key": "playwright_stealth",
+        "label": "PLAYWRIGHT_STEALTH",
+        "type": "bool",
+        "default": False,
+        "help": "Use stealth evasions when CRAWLER_TYPE is playwright.",
+    },
+    {
+        "key": "flaresolverr_url",
+        "label": "FLARESOLVERR_URL",
+        "type": "str",
+        "default": "http://localhost:8191/v1",
+        "help": "FlareSolverr API URL when CRAWLER_TYPE is flaresolverr.",
+    },
 ]
 
 
@@ -189,7 +212,15 @@ def _validate_value(key: str, value: Any, schema: list[dict[str, Any]]) -> Any:
     if t == "str":
         if value is None:
             return ""
-        return str(value).strip()
+        v = str(value).strip()
+        if v == "" and "default" in entry:
+            return entry["default"]
+        choices = entry.get("choices")
+        if choices is not None and v not in choices:
+            raise ValueError(
+                f"{key}: must be one of {list(choices)}, got {v!r}"
+            ) from None
+        return v
     return value
 
 

@@ -108,18 +108,18 @@ url('https://quotes.toscrape.com')//div[@class='quote']
 The TUI embodies wxpath's architectural philosophy:
 
 ```
-┌─────────────────────────────────────┐
+┌-------------------------------------┐
 │   Textual Framework                 │  ← Modern TUI with Rich rendering
-├─────────────────────────────────────┤
+├-------------------------------------┤
 │   Expression Editor (TextArea)      │  ← Real-time validation
-├─────────────────────────────────────┤
+├-------------------------------------┤
 │   WXPath Engine                     │  ← Async concurrent execution
-├─────────────────────────────────────┤
+├-------------------------------------┤
 │   Output Renderer                   │  ← Smart formatting (HTML/Table)
 │   • HTML Elements                   │
-│   • Dict → Table                    │
+│   • Dict -> Table                    │
 │   • Error Messages                  │
-└─────────────────────────────────────┘
+└-------------------------------------┘
 ```
 
 ### Key Components
@@ -144,7 +144,7 @@ The TUI validates your expression in real-time:
 ### Execution Flow
 
 ```
-User Types → Validation → Press Execute → Parse → Run Engine → Format → Display
+User Types -> Validation -> Press Execute -> Parse -> Run Engine -> Format -> Display
      ↓           ↓             ↓            ↓         ↓          ↓         ↓
   TextArea   Balance?     Parser OK?   AST Built  HTTP Req  HTML/Table  Output
               ↓                          

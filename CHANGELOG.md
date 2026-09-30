@@ -1,3 +1,12 @@
+## Unreleased
+- Add `//wx:paginate(extract, click=..., pages=...)` for browser click pagination.
+- Stream each page's extraction results and stop at a missing control, unchanged page, or page limit.
+- Add optional headless crawler backends: `PlaywrightCrawler` and `FlareSolverrCrawler`
+- Add TUI crawler settings: `crawler_type`, `playwright_stealth`, and `flaresolverr_url`
+- Prevent runtime hangs by emitting error responses for DNS failures in crawler workers
+- Prevent idle engine hangs when seed processing yields no crawl work
+- Make Playwright imports lazy so base installs work without Playwright extras
+
 ## 0.1.0
 - Initial public release
 - Declarative XPath-based crawling

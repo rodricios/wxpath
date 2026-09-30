@@ -31,8 +31,9 @@ from elementpath.xpath_tokens import XPathMap
 from lxml.html import HtmlElement, tostring
 from rich.console import RenderableType
 from textual import events, on, work
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, ScreenStackError
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import ModalScreen
@@ -42,6 +43,7 @@ from textual.widgets import (
     Footer,
     Header,
     Input,
+    OptionList,
     ProgressBar,
     Static,
     Switch,
@@ -49,6 +51,7 @@ from textual.widgets import (
     TabPane,
     TextArea,
 )
+from textual.widgets.option_list import Option
 
 from wxpath.core.runtime import ProgressBarInterface, WXPathEngine
 from wxpath.hooks import registry
@@ -65,8 +68,9 @@ from wxpath.tui_settings import (
 class SettingsScreen(ModalScreen):
     """Modal screen for editing persistent TUI settings.
 
-    Includes crawler options (CONCURRENCY, PER_HOST, RESPECT_ROBOTS, VERIFY_SSL),
-    TUI options (DEBUG_PANEL, CACHE, WSQL), and HTTP headers (JSON).
+    Includes crawler options (CRAWLER_TYPE, CONCURRENCY, PER_HOST, RESPECT_ROBOTS,
+    VERIFY_SSL, PLAYWRIGHT_STEALTH, FLARESOLVERR_URL), TUI options (DEBUG_PANEL,
+    CACHE, WSQL), and HTTP headers (JSON).
     Settings are saved to ~/.config/wxpath/tui_settings.json.
     """
 
@@ -77,10 +81,16 @@ class SettingsScreen(ModalScreen):
 
     #settings-dialog {
         width: 70;
-        min-height: 22;
+        max-height: 90%;
         border: thick $primary;
         background: $surface;
         padding: 1 2;
+    }
+
+    #settings-body {
+        height: 1fr;
+        max-height: 100%;
+        overflow-y: auto;
     }
 
     #settings-title {
@@ -137,46 +147,56 @@ class SettingsScreen(ModalScreen):
                 "Values are saved to config. Ctrl+S save, Esc cancel. Headers as JSON object.",
                 id="settings-help",
             )
-            for entry in TUISettingsSchema:
-                key = entry["key"]
-                label = entry["label"]
-                typ = entry["type"]
-                value = self.current.get(key, entry["default"])
-                if typ == "headers":
-                    with Vertical(classes="settings-row"):
-                        yield Static(label, classes="settings-label")
-                        headers_json = json.dumps(value, indent=2) if value else "{}"
-                        yield TextArea(
-                            headers_json,
-                            language="json",
-                            id=f"setting-{key}",
-                            classes="settings-input",
-                        )
-                else:
-                    with Horizontal(classes="settings-row"):
-                        yield Static(label, classes="settings-label")
-                        if typ == "int":
-                            inp = Input(
-                                str(value),
-                                type="integer",
+            with VerticalScroll(id="settings-body"):
+                for entry in TUISettingsSchema:
+                    key = entry["key"]
+                    label = entry["label"]
+                    typ = entry["type"]
+                    value = self.current.get(key, entry["default"])
+                    if typ == "headers":
+                        with Vertical(classes="settings-row"):
+                            yield Static(label, classes="settings-label")
+                            headers_json = json.dumps(value, indent=2) if value else "{}"
+                            yield TextArea(
+                                headers_json,
+                                language="json",
                                 id=f"setting-{key}",
                                 classes="settings-input",
                             )
-                            yield inp
-                        elif typ == "str":
-                            inp = Input(
-                                str(value),
-                                id=f"setting-{key}",
-                                classes="settings-input",
-                            )
-                            yield inp
-                        else:
-                            sw = Switch(
-                                value=bool(value),
-                                id=f"setting-{key}",
-                                classes="settings-input",
-                            )
-                            yield sw
+                    else:
+                        with Horizontal(classes="settings-row"):
+                            yield Static(label, classes="settings-label")
+                            if typ == "int":
+                                inp = Input(
+                                    str(value),
+                                    type="integer",
+                                    id=f"setting-{key}",
+                                    classes="settings-input",
+                                )
+                                yield inp
+                            elif typ == "str" and entry.get("choices"):
+                                choices = entry["choices"]
+                                option_list = OptionList(
+                                    *[Option(c, id=c) for c in choices],
+                                    id=f"setting-{key}",
+                                    classes="settings-input",
+                                )
+                                option_list.height = min(6, max(3, len(choices) + 1))
+                                yield option_list
+                            elif typ == "str":
+                                inp = Input(
+                                    str(value),
+                                    id=f"setting-{key}",
+                                    classes="settings-input",
+                                )
+                                yield inp
+                            else:
+                                sw = Switch(
+                                    value=bool(value),
+                                    id=f"setting-{key}",
+                                    classes="settings-input",
+                                )
+                                yield sw
             with Container(id="settings-buttons"):
                 yield Button("Save (Ctrl+S)", variant="primary", id="settings-save-btn")
                 yield Button("Cancel (Esc)", variant="default", id="settings-cancel-btn")
@@ -184,6 +204,25 @@ class SettingsScreen(ModalScreen):
     def on_mount(self) -> None:
         first_id = f"setting-{TUISettingsSchema[0]['key']}"
         self.query_one(f"#{first_id}").focus()
+        # Set initial selection for crawler_type OptionList
+        try:
+            crawler_entry = next(
+                e for e in TUISettingsSchema if e["key"] == "crawler_type"
+            )
+        except StopIteration:
+            pass
+        else:
+            choices = crawler_entry.get("choices")
+            if choices:
+                current = (
+                    str(self.current.get("crawler_type") or crawler_entry["default"])
+                ).strip().lower()
+                try:
+                    idx = list(choices).index(current)
+                except ValueError:
+                    idx = 0
+                opt_list = self.query_one("#setting-crawler_type", OptionList)
+                opt_list.highlighted = idx
 
     def _gather(self) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -191,7 +230,12 @@ class SettingsScreen(ModalScreen):
             key = entry["key"]
             typ = entry["type"]
             node = self.query_one(f"#setting-{key}")
-            if isinstance(node, Input):
+            if isinstance(node, OptionList):
+                opt = node.highlighted_option
+                result[key] = (
+                    opt.id if opt is not None else entry.get("default", "")
+                )
+            elif isinstance(node, Input):
                 raw = node.value.strip()
                 if typ == "int":
                     result[key] = int(raw) if raw else entry["default"]
@@ -703,6 +747,14 @@ class WXPathTUI(App):
         """Return the currently active editor widget."""
         editor_id = "#wsql-editor" if self._active_editor_mode() == "wsql" else "#expression-editor"
         return self.query_one(editor_id, TextArea)
+
+    def _has_active_screen(self) -> bool:
+        """Return True when the app has an active screen stack."""
+        try:
+            _ = self.screen
+            return True
+        except ScreenStackError:
+            return False
     
     def compose(self) -> ComposeResult:
         """Build the application layout."""
@@ -821,17 +873,23 @@ class WXPathTUI(App):
 
     def watch_editor_panel_percent(self, new_value: int) -> None:
         """Apply split height updates while in split mode."""
+        if not self._has_active_screen():
+            return
         if self.panel_view_mode == "split":
             self._apply_split_layout()
 
     def watch_panels_side_by_side(self, new_value: bool) -> None:
         """Apply panel orientation changes."""
+        if not self._has_active_screen():
+            return
         self._apply_orientation_layout()
         if self.panel_view_mode == "split":
             self._apply_split_layout()
 
     def watch_panel_view_mode(self, new_value: str) -> None:
         """Switch between split/editor-max/output-max panel modes."""
+        if not self._has_active_screen():
+            return
         editor = self._editor_container()
         output = self._output_container()
         divider = self._panel_divider()
@@ -929,18 +987,26 @@ class WXPathTUI(App):
         """Update subtitle with current cache, headers, and persistent settings."""
         # cache_state = "ON" if self.cache_enabled else "OFF"
         cache_state = SETTINGS.http.client.cache.enabled
-        headers_count = len(self.custom_headers)
+        headers_count = len(self.tui_settings.get("custom_headers") or {})
         headers_info = f"{headers_count} custom" if headers_count > 0 else "default"
-        wsql_state = "ON" if self.wsql_enabled else "OFF"
-        layout_state = "SIDE" if self.panels_side_by_side else "STACKED"
+        wsql_state = "ON" if bool(self.tui_settings.get("wsql_enabled", False)) else "OFF"
+        layout_state = (
+            "SIDE" if bool(self.tui_settings.get("panels_side_by_side", False)) else "STACKED"
+        )
         conc = self.tui_settings.get("concurrency", 16)
         ph = self.tui_settings.get("per_host", 8)
         robots = "ON" if self.tui_settings.get("respect_robots", True) else "OFF"
-        self.sub_title = (
+        crawler = (self.tui_settings.get("crawler_type") or "aiohttp").strip().lower()
+        subtitle = (
             f"Cache: {cache_state} | Headers: {headers_info} | "
-            f"Concurrency: {conc} | Per host: {ph} | Robots: {robots} | WSQL: {wsql_state} | Layout: {layout_state} | " # noqa: E501
+            f"Crawler: {crawler} | Concurrency: {conc} | Per host: {ph} | Robots: {robots} | WSQL: {wsql_state} | Layout: {layout_state} | "  # noqa: E501
             f"Ctrl+R: Run | Ctrl+Shift+S: Settings | Ctrl+Q: Quit"
         )
+        try:
+            self.sub_title = subtitle
+        except ScreenStackError:
+            # Unit tests may mutate reactive state before the app has a screen stack.
+            return
 
     def action_copy_expression(self) -> None:
         """Copy the expression to the clipboard."""
@@ -958,7 +1024,7 @@ class WXPathTUI(App):
         new_label = "ON" if new_state else "OFF"
         
         self._update_output(
-            f"[cyan]HTTP caching toggled: {old_label} → {new_label}[/cyan]\n\n"
+            f"[cyan]HTTP caching toggled: {old_label} -> {new_label}[/cyan]\n\n"
             "[dim]This setting will apply to the next expression execution.[/dim]"
         )
         self._debug(f"Toggled cache from {old_label} to {new_label}")
@@ -987,6 +1053,7 @@ class WXPathTUI(App):
                 )
                 self._update_output(
                     "[cyan]Settings saved[/cyan]\n\n"
+                    f"CRAWLER: {result.get('crawler_type', 'aiohttp')} | "
                     f"CONCURRENCY: {result.get('concurrency', 16)} | "
                     f"PER_HOST: {result.get('per_host', 8)} | "
                     f"RESPECT_ROBOTS: {result.get('respect_robots', True)} | "
@@ -1215,26 +1282,13 @@ class WXPathTUI(App):
         try:
             # Wrap the async iteration with timeout (60s for larger result sets)
 
-            # Import here to avoid circular imports
-            from wxpath.http.client.crawler import Crawler
-
-            conc = self.tui_settings.get("concurrency", 16)
-            ph = self.tui_settings.get("per_host", 8)
-            robots = self.tui_settings.get("respect_robots", True)
-            verify_ssl = self.tui_settings.get("verify_ssl", True)
-            crawler = Crawler(
-                concurrency=conc,
-                per_host=ph,
-                respect_robots=robots,
-                verify_ssl=verify_ssl,
-                headers=dict(self.custom_headers) if self.custom_headers else None,
-            )
-            engine = WXPathEngine(crawler=crawler, yield_errors=True)
-            
             # Streaming approach
             panel = self.query_one("#output-panel", OutputPanel)
             panel.clear()
 
+            crawler = self._create_crawler()
+            engine = WXPathEngine(crawler=crawler, yield_errors=True)
+            
             # Create progress adapter if enabled (engine will drive the bar)
             progress_adapter: ProgressBarInterface | None = None
             if show_progress and mode != "wsql":
@@ -1260,13 +1314,7 @@ class WXPathTUI(App):
                     self._debug(
                         "WSQLExecutor drives execution DAG; TUI progress bar is disabled for WSQL mode." # noqa: E501
                     )
-                executor = self._create_wsql_executor(
-                    concurrency=conc,
-                    per_host=ph,
-                    respect_robots=robots,
-                    verify_ssl=verify_ssl,
-                    headers=dict(self.custom_headers) if self.custom_headers else None,
-                )
+                executor = self._create_wsql_executor()
                 result_stream = executor.execute(
                     expression,
                     progress=False,
@@ -1293,8 +1341,6 @@ class WXPathTUI(App):
                 if isinstance(result, XPathMap):
                     # result = dict(result.items())
                     result = result._map
-
-                
 
                 if not columns_initialized:
                     self._debug("Initializing table columns")
@@ -1459,14 +1505,59 @@ class WXPathTUI(App):
         editor.text = ""
         self._debug(f"{self._active_editor_mode().upper()} editor cleared.")
 
+    def _create_crawler(self) -> Any:
+        """Build Crawler, PlaywrightCrawler, or FlareSolverrCrawler from TUI settings.
+
+        Returns:
+            A crawler instance (not yet entered) for use with WXPathEngine.
+        """
+        from wxpath.http.client.crawler import (
+            Crawler,
+            FlareSolverrCrawler,
+            PlaywrightCrawler,
+        )
+
+        conc = self.tui_settings.get("concurrency", 16)
+        ph = self.tui_settings.get("per_host", 8)
+        robots = self.tui_settings.get("respect_robots", True)
+        verify_ssl = self.tui_settings.get("verify_ssl", True)
+        headers = dict(self.custom_headers) if self.custom_headers else None
+        crawler_type = (self.tui_settings.get("crawler_type") or "aiohttp").strip().lower()
+        playwright_stealth = bool(self.tui_settings.get("playwright_stealth", False))
+        flaresolverr_url = str(
+            self.tui_settings.get("flaresolverr_url") or "http://localhost:8191/v1"
+        ).strip()
+
+        # log the crawler type
+        self._debug(f"Creating crawler: {crawler_type}")
+        if crawler_type == "playwright":
+            return PlaywrightCrawler(
+                stealth=playwright_stealth,
+                concurrency=conc,
+                per_host=ph,
+                respect_robots=robots,
+                verify_ssl=verify_ssl,
+                headers=headers,
+            )
+        if crawler_type == "flaresolverr":
+            return FlareSolverrCrawler(
+                flaresolverr_url=flaresolverr_url or "http://localhost:8191/v1",
+                concurrency=conc,
+                per_host=ph,
+                respect_robots=robots,
+                verify_ssl=verify_ssl,
+                headers=headers,
+            )
+        return Crawler(
+            concurrency=conc,
+            per_host=ph,
+            respect_robots=robots,
+            verify_ssl=verify_ssl,
+            headers=headers,
+        )
+
     def _create_wsql_executor(
         self,
-        *,
-        concurrency: int = 16,
-        per_host: int = 8,
-        respect_robots: bool = True,
-        verify_ssl: bool = True,
-        headers: dict[str, str] | None = None,
     ) -> Any:
         """Create a configured ``WSQLExecutor`` from installed WSQL runtime APIs."""
         if not self.wsql_enabled:
@@ -1497,29 +1588,27 @@ class WXPathTUI(App):
             raise AttributeError(
                 "wsql.runtime.executor must expose WSQLExecutor"
             )
+        default_crawler_name = (
+            str(self.tui_settings.get("crawler_type") or "").strip().lower() or None
+        )
+        headers = (
+            dict(self.tui_settings.get("custom_headers") or {})
+            if self.tui_settings.get("custom_headers")
+            else None
+        )
 
-        # Use a custom executor wrapper so each query context gets a fresh engine.
-        # This avoids shared-state issues (e.g. seen_urls) in JOIN/DAG execution.
-        class _TUIWSQLExecutor(executor_cls):
-            """WSQL executor configured for TUI crawler settings."""
-
-            def _create_engine(self) -> WXPathEngine:  # type: ignore[override]
-                from wxpath.http.client.crawler import Crawler
-
-                crawler = Crawler(
-                    concurrency=concurrency,
-                    per_host=per_host,
-                    respect_robots=respect_robots,
-                    verify_ssl=verify_ssl,
-                    headers=dict(headers) if headers else None,
-                )
-                return WXPathEngine(crawler=crawler, yield_errors=True)
-
-        return _TUIWSQLExecutor(
-            engine=None,
-            concurrency=concurrency,
-            per_host=per_host,
-            respect_robots=respect_robots,
+        return executor_cls(
+            default_crawler_name=default_crawler_name,
+            concurrency=int(self.tui_settings.get("concurrency", 16)),
+            per_host=int(self.tui_settings.get("per_host", 8)),
+            respect_robots=bool(self.tui_settings.get("respect_robots", True)),
+            verify_ssl=bool(self.tui_settings.get("verify_ssl", True)),
+            headers=headers,
+            playwright_stealth=bool(self.tui_settings.get("playwright_stealth", False)),
+            flaresolverr_url=str(
+                self.tui_settings.get("flaresolverr_url")
+                or "http://localhost:8191/v1"
+            ).strip(),
             yield_errors=True,
         )
 
@@ -1546,8 +1635,12 @@ class WXPathTUI(App):
 
     def watch_debug_panel_visible(self, visible: bool) -> None:
         """Show or hide the debug panel and persist to config when toggled."""
-        container = self.query_one("#debug-container", Container)
-        container.display = visible
+        try:
+            container = self.query_one("#debug-container", Container)
+        except (NoMatches, ScreenStackError):
+            container = None
+        if container is not None:
+            container.display = visible
         self.tui_settings = {
             **self.tui_settings,
             "debug_panel_enabled": visible,
@@ -1574,7 +1667,10 @@ class WXPathTUI(App):
 
     def _debug(self, message: str) -> None:
         """Append a timestamped message to the debug panel."""
-        panel = self.query_one("#debug-panel", DebugPanel)
+        try:
+            panel = self.query_one("#debug-panel", DebugPanel)
+        except (NoMatches, ScreenStackError):
+            return
         timestamp = datetime.now().strftime("%H:%M:%S")
         panel.append(f"[dim]{timestamp}[/dim] {self._escape_rich_markup(message)}")
 

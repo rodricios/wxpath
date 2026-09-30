@@ -28,24 +28,24 @@ from wxpath.core.ops import get_operator
 Expression String
             │
             ▼ 
-        ┌────────┐
-        │ Parser │  → AST (Segments)
-        └────────┘
+        ┌--------┐
+        │ Parser │  -> AST (Segments)
+        └--------┘
             │
             ▼
-        ┌────────┐                  ┌─────────┐
-        │ Engine │  → CrawlTasks →  │ Crawler │ 
-    ┌── │        │  ← HTML Body  ←  │         │
-    │   └────────┘                  └─────────┘
+        ┌--------┐                  ┌---------┐
+        │ Engine │  -> CrawlTasks ->  │ Crawler │ 
+    ┌-- │        │  ← HTML Body  ←  │         │
+    │   └--------┘                  └---------┘
     │      │  ▲  
     │      ▼  | Intents
-    │   ┌─────────┐
-    │   │   Ops   │  → Executes segment operations
-    │   └─────────┘
+    │   ┌---------┐
+    │   │   Ops   │  -> Executes segment operations
+    │   └---------┘
     │       
-    │   ╭─────────╮
-    └─▶ │ Results │  
-        ╰─────────╯
+    │   ╭---------╮
+    └-▶ │ Results │  
+        ╰---------╯
 ```
 
 The parser converts expressions to an AST. The engine processes the AST with a BFS-like crawl queue. Operations handle each segment type and emit intents. Intents drive the next processing step (crawl, extract, or yield data).

@@ -228,6 +228,7 @@ def _get_root_domain(base_url: str) -> str:
     return root_domain
 
 
+# TODO: `//wx:internal-links()` (as opposed to `/wx:internal-links()`) is broken in wxpath
 @register_wxpath_function('wx:internal-links', nargs=0)
 def wx_internal_links(_: XPathFunction, context: XPathContext):
     """

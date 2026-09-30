@@ -91,7 +91,7 @@ class JSONLWriter:
     def _shutdown(self):
         self._stop = True
         if self._t.is_alive():
-            self._t.join(timeout=2)
+            self._t.join(timeout=0.5)
 
     def _jsonable(self, v):
         # Keep it conservative: only write JSON-friendly shapes by default.
