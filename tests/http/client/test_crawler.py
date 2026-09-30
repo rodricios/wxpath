@@ -502,6 +502,27 @@ async def test_playwright_fetch_one_uses_cached_response_without_browser_navigat
 
 
 @pytest.mark.asyncio
+async def test_playwright_fetch_one_without_optional_cache_backend():
+    """Playwright navigation should work when optional cache support is absent."""
+    playwright_response = SimpleNamespace(
+        url="https://example.com/page",
+        status_text="OK",
+        status=200,
+        headers={"Content-Type": "text/html"},
+    )
+    page = FakePage(response=playwright_response, html="<html>fresh</html>")
+    context = FakeContext(page)
+    crawler = PlaywrightCrawler(concurrency=1, respect_robots=False)
+    crawler._browser = FakeBrowser(context)
+
+    response = await crawler._fetch_one(Request("https://example.com/page"))
+
+    assert response.status == 200
+    assert response.body == "<html>fresh</html>"
+    assert context.closed is True
+
+
+@pytest.mark.asyncio
 async def test_playwright_fetch_one_headless_navigation_and_cache_write():
     """Cache miss should navigate via browser context and persist cache entry."""
     actions = FakeCacheActions(skip_read=True, key="k1")

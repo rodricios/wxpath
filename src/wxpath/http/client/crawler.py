@@ -366,7 +366,7 @@ class PlaywrightCrawler(BaseCrawler):
         if self.respect_robots:
             self._robots_policy = RobotsTxtPolicy(self._session)
 
-        if self._cache_backend is None:
+        if CACHE_SETTINGS.enabled and self._cache_backend is None:
             self._cache_backend = get_cache_backend()
 
         # if self._cookie_jar is None:
@@ -459,62 +459,33 @@ class PlaywrightCrawler(BaseCrawler):
         if req.pagination is not None:
             return await self._fetch_paginated(req)
 
-        #### CACHE LOGIC PT. 1 ####
-        # Inspired by aiohttp-client-cache
-        # Should I include a flag stating that this was from playwright?
-        key = self._cache_backend.create_key('GET', req.url, headers=self._headers)
-        actions = self._cache_backend.create_cache_actions(
-            key, req.url, expire_after=CACHE_SETTINGS.expire_after, 
-            refresh=False, 
-            headers=self._headers # **kwargs
-        )
-
-        if actions.skip_read:
-            lock: Lock | nullcontext = self._null_lock
-        else:
-            lock = cached_session._get_lock(id(self), key)
-
-        async with lock:
-            # Inside _cache_backend.request, actions.skip_read is checked and appropriately handled
-            response = await self._cache_backend.request(actions)
-
-            #### DO NOT CACHE COOKIES HERE ####
-            #### UNTESTED! ####
-            # def restore_cookies(r):
-            #     # WARNING: THIS CODE PATH IS NOT TESTED
-            #     breakpoint()
-            #     self._cookie_jar.update_cookies(r.cookies or {}, r.url)
-            #     for redirect in r.history:
-            #         self._cookie_jar.update_cookies(redirect.cookies or {}, redirect.url)
-
-            # # TODO: This would be neat, to further minimize total bytes sent to
-            # #       the target server, but it's complex, and possibly not worth it
-            # #       due to the browser context spinup cost.
-            # if actions.revalidate and response:
-            #     from_cache, new_response = await self._refresh_cached_response(
-            #         'GET', req.url, response, actions, headers=self._headers, # **kwargs
-            #     )
-            #     if not from_cache:
-            #         return cached_session.set_response_defaults(new_response)
-            #     else:
-            #         # restore_cookies(new_response)
-            #         response = cast(CachedResponse, new_response)
-                    
-            # Restore any cached cookies to the session
-            if response:
-                # restore_cookies(response)
-                log.debug(f'Using cached response for {req.url}')
-
-                return Response(req, response.status, response._body, 
-                                headers=dict(response.headers), 
-                                request_start=0, response_end=0)
-            # If the response was missing or expired, send and cache a new request
-            else:
-                if actions.skip_read:
-                    log.debug(f'Reading from cache was skipped; making request to {req.url}')
-                else:
-                    log.debug(f'Cached response not found; making request to {req.url}')
-        #### END CACHE LOGIC PT. 1 ####
+        actions = None
+        if self._cache_backend is not None:
+            key = self._cache_backend.create_key('GET', req.url, headers=self._headers)
+            actions = self._cache_backend.create_cache_actions(
+                key,
+                req.url,
+                expire_after=CACHE_SETTINGS.expire_after,
+                refresh=False,
+                headers=self._headers,
+            )
+            lock: Lock | nullcontext = (
+                self._null_lock
+                if actions.skip_read
+                else cached_session._get_lock(id(self), key)
+            )
+            async with lock:
+                response = await self._cache_backend.request(actions)
+                if response:
+                    log.debug(f'Using cached response for {req.url}')
+                    return Response(
+                        req,
+                        response.status,
+                        response._body,
+                        headers=dict(response.headers),
+                        request_start=0,
+                        response_end=0,
+                    )
 
         # page = await self._browser.new_page()
         context = await self._browser.new_context(
@@ -550,24 +521,23 @@ class PlaywrightCrawler(BaseCrawler):
         # cookies = await context.cookies()
         await context.close()
 
-        #### CACHE LOGIC PT. 2 ####
-        actions.update_from_response(response)
-        resp_sillhouette = self._build_cache_response_silhouette(response, body)
-        if await self._cache_backend.is_cacheable(resp_sillhouette, actions):
-            try:
-                await self._cache_backend.save_response(
-                    resp_sillhouette,
-                    actions.key,
-                    actions.expires,
-                )
-                log.info("[CACHE WRITE]", extra={"req.url": req.url, "resp.url": response.url})
-            except Exception as exc:
-                log.warning(
-                    "playwright cache write failed",
-                    extra={"req.url": req.url, "resp.url": response.url},
-                    exc_info=exc,
-                )
-        #### END CACHE LOGIC PT. 2 ####
+        if actions is not None:
+            actions.update_from_response(response)
+            cached_response = self._build_cache_response_silhouette(response, body)
+            if await self._cache_backend.is_cacheable(cached_response, actions):
+                try:
+                    await self._cache_backend.save_response(
+                        cached_response,
+                        actions.key,
+                        actions.expires,
+                    )
+                    log.info("[CACHE WRITE]", extra={"req.url": req.url, "resp.url": response.url})
+                except Exception as exc:
+                    log.warning(
+                        "playwright cache write failed",
+                        extra={"req.url": req.url, "resp.url": response.url},
+                        exc_info=exc,
+                    )
         
         # TODO: Should we pass down headers like we do in Crawler()? 
         return Response(req, response.status, body, 
